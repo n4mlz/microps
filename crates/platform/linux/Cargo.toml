@@ -1,0 +1,16 @@
+[package]
+name = "linux"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "linux"
+path = "src/main.rs"
+
+[dependencies]
+microps.workspace = true
+rand.workspace = true
+signal-hook.workspace = true
