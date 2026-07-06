@@ -1,6 +1,11 @@
-[package]
-name = "microps"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "3"
+members = [
+    "crates/domain",
+    "crates/platform/linux",
+]
 
-[dependencies]
+[workspace.dependencies]
+microps = { path = "crates/domain" }
+rand = { version = "0.9.2" }
+signal-hook = { version = "0.3.18" }
