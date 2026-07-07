@@ -5,6 +5,16 @@ use core::{
 
 mod log;
 
+/// `fmt::Write` adapter used by the printing macros.
+pub struct Writer;
+
+impl fmt::Write for Writer {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        write(format_args!("{s}"));
+        Ok(())
+    }
+}
+
 /// Platform-provided standard output sink.
 pub trait Stdout {
     fn init() {
@@ -22,10 +32,12 @@ fn set_writer(write: WriteFn) {
     WRITER.store(write as usize, Ordering::Release);
 }
 
-pub(crate) fn write(args: fmt::Arguments<'_>) {
+pub fn write(args: fmt::Arguments<'_>) {
     let ptr = WRITER.load(Ordering::Acquire);
     if ptr != 0 {
         let write = unsafe { core::mem::transmute::<usize, WriteFn>(ptr) };
         write(args);
     }
 }
+
+pub use log::debugdump;

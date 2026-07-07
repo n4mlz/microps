@@ -5,3 +5,7 @@ edition = "2024"
 
 [lib]
 path = "src/lib.rs"
+
+[dependencies]
+bitflags.workspace = true
+getset.workspace = true
