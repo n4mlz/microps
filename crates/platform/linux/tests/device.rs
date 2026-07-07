@@ -1,11 +1,14 @@
-use microps::{Device, DeviceKind, DeviceMeta, DeviceRegistry, DummyDevice};
+use linux::LinuxPlatform;
+use microps::{Device, DeviceKind, DeviceMeta, DeviceRegistry, LoopbackDevice, Stack};
 
 #[test]
-fn dummy_device_runs_through_the_registry() {
+fn loopback_device_runs_through_the_stack() {
+    Stack::init::<LinuxPlatform>().expect("stack initializes");
+
     let mut registry = DeviceRegistry::new();
     let handle = registry.register(Device::new(
-        DeviceMeta::new("net0", DeviceKind::Dummy, 128),
-        DummyDevice::new(),
+        DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
+        LoopbackDevice::new(),
     ));
 
     assert_eq!(
@@ -22,6 +25,7 @@ fn dummy_device_runs_through_the_registry() {
         .device_mut(handle)
         .expect("device exists")
         .output(0x0800, &[0x45, 0x00, 0x00, 0x30], None)
-        .expect("output succeeds");
+        .expect("loopback output succeeds");
     registry.close_all();
+    Stack::shutdown::<LinuxPlatform>();
 }

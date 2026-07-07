@@ -1,41 +1,29 @@
-use std::{
-    sync::{
-        Arc, OnceLock,
-        atomic::{AtomicBool, Ordering},
-    },
-    thread,
-    time::Duration,
-};
+use std::{thread, time::Duration};
 
-use linux::LinuxPlatform;
-use microps::{Stack, Stdout};
+use linux::{LinuxPlatform, should_terminate};
+use microps::{Device, DeviceKind, DeviceMeta, DeviceRegistry, LoopbackDevice, Stack};
 
-static TERMINATE: OnceLock<Arc<AtomicBool>> = OnceLock::new();
-
-fn init_signal() {
-    let terminate = TERMINATE
-        .get_or_init(|| Arc::new(AtomicBool::new(false)))
-        .clone();
-    terminate.store(false, Ordering::SeqCst);
-    let _ = signal_hook::flag::register(signal_hook::consts::SIGINT, terminate);
-}
-
-fn should_terminate() -> bool {
-    TERMINATE
-        .get()
-        .is_some_and(|flag| flag.load(Ordering::SeqCst))
-}
+const TEST_DATA: &[u8] = &[0x45, 0x00, 0x00, 0x30, 0x00, 0x01, 0x00, 0x00];
 
 fn main() {
-    <LinuxPlatform as Stdout>::init();
-    init_signal();
-
     Stack::init::<LinuxPlatform>().unwrap();
 
+    let mut registry = DeviceRegistry::new();
+    let handle = registry.register(Device::new(
+        DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
+        LoopbackDevice::new(),
+    ));
+    registry.open_all().unwrap();
+
     while !should_terminate() {
-        Stack::poll::<LinuxPlatform>().unwrap();
+        registry
+            .device_mut(handle)
+            .unwrap()
+            .output(0x0800, TEST_DATA, None)
+            .unwrap();
         thread::sleep(Duration::from_millis(1));
     }
 
+    registry.close_all();
     Stack::shutdown::<LinuxPlatform>();
 }

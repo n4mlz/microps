@@ -1,11 +1,10 @@
 /// Platform-specific lifecycle required by the stack.
-pub trait Runtime {
+pub trait Platform {
     type Error;
 
     fn init() -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn poll() -> Result<(), Self::Error>;
     fn shutdown();
 }

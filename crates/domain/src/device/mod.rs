@@ -3,7 +3,7 @@ mod registry;
 
 use alloc::{boxed::Box, string::String};
 
-pub use backend::{DeviceBackend, DummyDevice};
+pub use backend::DeviceBackend;
 use bitflags::bitflags;
 use getset::Getters;
 pub use registry::{DeviceHandle, DeviceRegistry};
