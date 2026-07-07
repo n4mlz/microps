@@ -3,9 +3,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use microps::{
-    Device, DeviceBackend, DeviceError, DeviceKind, DeviceMeta, DeviceRegistry,
-};
+use microps::{Device, DeviceBackend, DeviceError, DeviceKind, DeviceMeta, DeviceRegistry};
 
 #[derive(Debug, Clone)]
 struct CountingBackend {
@@ -74,14 +72,19 @@ fn device_enforces_state_and_mtu() {
     let (backend, open_calls, close_calls, output_calls) = CountingBackend::new();
     let mut device = Device::new(DeviceMeta::new("net0", DeviceKind::Dummy, 4), backend);
 
-    assert!(matches!(device.output(0x0800, &[1], None), Err(DeviceError::NotOpen)));
+    assert!(matches!(
+        device.output(0x0800, &[1], None),
+        Err(DeviceError::NotOpen)
+    ));
 
     device.open().expect("device opens");
     assert!(matches!(
         device.output(0x0800, &[1, 2, 3, 4, 5], None),
         Err(DeviceError::PayloadTooLarge { mtu: 4, len: 5 })
     ));
-    device.output(0x0800, &[1, 2, 3, 4], None).expect("payload fits");
+    device
+        .output(0x0800, &[1, 2, 3, 4], None)
+        .expect("payload fits");
     device.close().expect("device closes");
 
     assert_eq!(open_calls.load(Ordering::SeqCst), 1);

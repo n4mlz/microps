@@ -1,4 +1,4 @@
-use crate::{debugdump, DeviceMeta, DeviceState};
+use crate::{DeviceMeta, DeviceState, debugdump};
 
 /// Backend hooks for platform-specific device behavior.
 pub trait DeviceBackend: core::fmt::Debug {

@@ -1,8 +1,7 @@
 mod backend;
 mod registry;
 
-use alloc::boxed::Box;
-use alloc::string::String;
+use alloc::{boxed::Box, string::String};
 
 pub use backend::{DeviceBackend, DummyDevice};
 use bitflags::bitflags;
@@ -144,7 +143,8 @@ impl Device {
                 len: data.len(),
             });
         }
-        self.backend.output(&self.meta, &self.state, frame_type, data, dst);
+        self.backend
+            .output(&self.meta, &self.state, frame_type, data, dst);
         Ok(())
     }
 }
