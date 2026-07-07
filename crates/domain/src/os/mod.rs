@@ -7,5 +7,5 @@ pub mod stdout;
 pub use irq::Irq;
 pub use lock::Lock;
 pub use random::Random;
-pub use runtime::Runtime;
+pub use runtime::Platform;
 pub use stdout::Stdout;

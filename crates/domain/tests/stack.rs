@@ -1,17 +1,17 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use microps::{Runtime, Stack};
+use microps::{Platform, Stack};
 
 struct MockRuntime;
 
-static POLL_CALLS: AtomicUsize = AtomicUsize::new(0);
+static INIT_CALLS: AtomicUsize = AtomicUsize::new(0);
 static SHUTDOWN_CALLS: AtomicUsize = AtomicUsize::new(0);
 
-impl Runtime for MockRuntime {
+impl Platform for MockRuntime {
     type Error = core::convert::Infallible;
 
-    fn poll() -> Result<(), Self::Error> {
-        POLL_CALLS.fetch_add(1, Ordering::SeqCst);
+    fn init() -> Result<(), Self::Error> {
+        INIT_CALLS.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
@@ -22,13 +22,12 @@ impl Runtime for MockRuntime {
 
 #[test]
 fn stack_lifecycle_calls_runtime_hooks() {
-    POLL_CALLS.store(0, Ordering::SeqCst);
+    INIT_CALLS.store(0, Ordering::SeqCst);
     SHUTDOWN_CALLS.store(0, Ordering::SeqCst);
 
     Stack::init::<MockRuntime>().unwrap();
-    Stack::poll::<MockRuntime>().unwrap();
     Stack::shutdown::<MockRuntime>();
 
-    assert_eq!(POLL_CALLS.load(Ordering::SeqCst), 1);
+    assert_eq!(INIT_CALLS.load(Ordering::SeqCst), 1);
     assert_eq!(SHUTDOWN_CALLS.load(Ordering::SeqCst), 1);
 }
