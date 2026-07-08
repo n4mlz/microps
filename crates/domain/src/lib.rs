@@ -5,6 +5,7 @@ extern crate alloc;
 mod device;
 pub mod driver;
 mod os;
+pub mod protocol;
 mod stack;
 
 pub use device::{
