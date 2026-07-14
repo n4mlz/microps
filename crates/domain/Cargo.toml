@@ -9,3 +9,4 @@ path = "src/lib.rs"
 [dependencies]
 bitflags.workspace = true
 getset.workspace = true
+thiserror.workspace = true

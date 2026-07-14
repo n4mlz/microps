@@ -2,7 +2,7 @@ use crate::DeviceMeta;
 
 mod ipv4;
 
-pub use ipv4::Ipv4;
+pub use ipv4::{Ipv4, Ipv4Addr, Ipv4AddrParseError, Ipv4Error, Ipv4Header, Ipv4Packet};
 
 /// Static contract for a protocol implementation.
 pub trait Protocol {
