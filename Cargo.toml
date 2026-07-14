@@ -1,9 +1,6 @@
 [workspace]
 resolver = "3"
-members = [
-    "crates/domain",
-    "crates/platform/linux",
-]
+members = ["crates/domain", "crates/platform/linux"]
 
 [workspace.dependencies]
 bitflags = { version = "2.6.0" }
