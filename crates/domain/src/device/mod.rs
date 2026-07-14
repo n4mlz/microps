@@ -5,8 +5,9 @@ use alloc::{boxed::Box, string::String};
 
 pub use backend::DeviceBackend;
 use bitflags::bitflags;
-use getset::Getters;
+use getset::{CopyGetters, Getters};
 pub use registry::{DeviceHandle, DeviceRegistry};
+use thiserror::Error;
 
 /// Device type used by the stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,11 +30,13 @@ bitflags! {
 }
 
 /// Immutable metadata shared by all device backends.
-#[derive(Debug, Clone, PartialEq, Eq, Getters)]
+#[derive(Debug, Clone, PartialEq, Eq, Getters, CopyGetters)]
 pub struct DeviceMeta {
     #[getset(get = "pub")]
     name: String,
+    #[getset(get_copy = "pub")]
     kind: DeviceKind,
+    #[getset(get_copy = "pub")]
     mtu: usize,
 }
 
@@ -44,14 +47,6 @@ impl DeviceMeta {
             kind,
             mtu,
         }
-    }
-
-    pub fn kind(&self) -> DeviceKind {
-        self.kind
-    }
-
-    pub fn mtu(&self) -> usize {
-        self.mtu
     }
 }
 
@@ -82,10 +77,13 @@ impl DeviceState {
 }
 
 /// Error returned by device lifecycle and I/O operations.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DeviceError {
+    #[error("device is already open")]
     AlreadyOpen,
+    #[error("device is not open")]
     NotOpen,
+    #[error("payload is too large: {len} bytes exceeds MTU {mtu}")]
     PayloadTooLarge { mtu: usize, len: usize },
 }
 
