@@ -1,13 +1,15 @@
 mod addr;
 mod header;
+mod interface;
 mod packet;
 
 pub use addr::{Ipv4Addr, Ipv4AddrParseError};
 pub use header::{Ipv4Error, Ipv4Header};
+pub use interface::Ipv4Interface;
 pub use packet::Ipv4Packet;
 
 use super::Protocol;
-use crate::{DeviceMeta, debug, error};
+use crate::{AddressFamily, DeviceMeta, InterfaceRegistry, debug, error};
 
 /// IPv4 version carried in the high four bits of the first header byte.
 const VERSION: u8 = 4;
@@ -22,7 +24,7 @@ pub struct Ipv4;
 impl Protocol for Ipv4 {
     const TYPE: u16 = 0x0800;
 
-    fn input(meta: &DeviceMeta, data: &[u8], _dst: Option<&[u8]>) {
+    fn input(meta: &DeviceMeta, data: &[u8], interfaces: &InterfaceRegistry) {
         debug!("dev={}, len={}", meta.name(), data.len());
         let packet = match Ipv4Packet::try_from(data) {
             Ok(packet) => packet,
@@ -32,6 +34,13 @@ impl Protocol for Ipv4 {
             }
         };
         let header = packet.header();
+
+        let Some(interface) = interfaces.get(AddressFamily::Ipv4) else {
+            return;
+        };
+        if !interface.accepts(&header.destination().octets()) {
+            return;
+        }
 
         debug!(
             "vhl: 0x{:02x} [v: {}, hl: 5 (20)]",
