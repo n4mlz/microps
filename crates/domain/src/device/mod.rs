@@ -85,6 +85,33 @@ pub enum DeviceError {
     NotOpen,
     #[error("payload is too large: {len} bytes exceeds MTU {mtu}")]
     PayloadTooLarge { mtu: usize, len: usize },
+    #[error("device backend failure: {message}")]
+    Backend { message: String },
+    #[error("Ethernet destination address is required")]
+    MissingDestination,
+    #[error("invalid Ethernet destination address length: {len} bytes")]
+    InvalidDestination { len: usize },
+}
+
+/// A frame received from a device, borrowing the backend's receive buffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReceivedFrame<'a> {
+    frame_type: u16,
+    data: &'a [u8],
+}
+
+impl<'a> ReceivedFrame<'a> {
+    pub const fn new(frame_type: u16, data: &'a [u8]) -> Self {
+        Self { frame_type, data }
+    }
+
+    pub const fn frame_type(self) -> u16 {
+        self.frame_type
+    }
+
+    pub const fn data(self) -> &'a [u8] {
+        self.data
+    }
 }
 
 /// Concrete device value that owns its backend.
@@ -112,7 +139,7 @@ impl Device {
         if self.state.is_up() {
             return Err(DeviceError::AlreadyOpen);
         }
-        self.backend.open(&self.meta, &self.state);
+        self.backend.open(&self.meta, &self.state)?;
         self.state.up();
         Ok(())
     }
@@ -121,7 +148,7 @@ impl Device {
         if !self.state.is_up() {
             return Err(DeviceError::NotOpen);
         }
-        self.backend.close(&self.meta, &self.state);
+        self.backend.close(&self.meta, &self.state)?;
         self.state.down();
         Ok(())
     }
@@ -147,7 +174,13 @@ impl Device {
             });
         }
         self.backend
-            .output(&self.meta, &self.state, frame_type, data, dst);
-        Ok(())
+            .output(&self.meta, &self.state, frame_type, data, dst)
+    }
+
+    pub fn input(&mut self) -> Result<Option<ReceivedFrame<'_>>, DeviceError> {
+        if !self.state.is_up() {
+            return Err(DeviceError::NotOpen);
+        }
+        self.backend.input(&self.meta, &self.state)
     }
 }

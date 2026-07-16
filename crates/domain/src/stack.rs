@@ -1,4 +1,7 @@
-use crate::{DeviceMeta, InterfaceRegistry, Platform, debug, debugdump, error, info, protocol};
+use crate::{
+    DeviceError, DeviceMeta, DeviceRegistry, InterfaceRegistry, Platform, debug, debugdump, error,
+    info, protocol,
+};
 
 /// Delivers a received frame to the protocol stack.
 ///
@@ -11,6 +14,19 @@ pub fn net_input(meta: &DeviceMeta, interfaces: &InterfaceRegistry, frame_type: 
     );
     debugdump(data);
     protocol::Protocols::input(frame_type, meta, data, interfaces)
+}
+
+pub fn input(
+    registry: &mut DeviceRegistry,
+    interfaces: &InterfaceRegistry,
+) -> Result<(), DeviceError> {
+    for device in registry.iter_mut() {
+        let meta = device.meta().clone();
+        while let Some(frame) = device.input()? {
+            net_input(&meta, interfaces, frame.frame_type(), frame.data());
+        }
+    }
+    Ok(())
 }
 
 /// Protocol stack lifecycle.

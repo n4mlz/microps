@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use core::{fmt, str::FromStr};
 
 use thiserror::Error;
@@ -87,7 +88,21 @@ pub struct EthernetFrame<'a> {
     payload: &'a [u8],
 }
 
-impl EthernetFrame<'_> {
+impl<'a> EthernetFrame<'a> {
+    pub const fn new(
+        destination: EthernetAddress,
+        source: EthernetAddress,
+        ethertype: u16,
+        payload: &'a [u8],
+    ) -> Self {
+        Self {
+            destination,
+            source,
+            ethertype,
+            payload,
+        }
+    }
+
     pub const fn destination(&self) -> EthernetAddress {
         self.destination
     }
@@ -102,6 +117,17 @@ impl EthernetFrame<'_> {
 
     pub const fn payload(&self) -> &[u8] {
         self.payload
+    }
+}
+
+impl From<EthernetFrame<'_>> for Vec<u8> {
+    fn from(frame: EthernetFrame<'_>) -> Self {
+        let mut bytes = Vec::with_capacity(HEADER_LEN + frame.payload.len());
+        bytes.extend_from_slice(&frame.destination.octets());
+        bytes.extend_from_slice(&frame.source.octets());
+        bytes.extend_from_slice(&frame.ethertype.to_be_bytes());
+        bytes.extend_from_slice(frame.payload);
+        bytes
     }
 }
 
