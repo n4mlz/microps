@@ -11,6 +11,7 @@ name = "linux"
 path = "src/main.rs"
 
 [dependencies]
+libc.workspace = true
 microps.workspace = true
 rand.workspace = true
 signal-hook.workspace = true

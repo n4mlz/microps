@@ -48,6 +48,25 @@ fn ethernet_frame_parses_header_and_borrows_payload() {
 }
 
 #[test]
+fn ethernet_frame_serializes_header_and_payload() {
+    let frame = EthernetFrame::new(
+        EthernetAddress::BROADCAST,
+        EthernetAddress::from([0x02, 0x00, 0x5e, 0x10, 0x20, 0xff]),
+        0x0800,
+        &[0xaa, 0xbb],
+    );
+
+    let bytes: Vec<u8> = frame.into();
+    assert_eq!(
+        bytes,
+        [
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02, 0x00, 0x5e, 0x10, 0x20, 0xff, 0x08, 0x00,
+            0xaa, 0xbb,
+        ]
+    );
+}
+
+#[test]
 fn ethernet_frame_rejects_short_header() {
     assert_eq!(
         EthernetFrame::try_from(&[0; 13][..]),
