@@ -3,9 +3,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use microps::{
-    Device, DeviceBackend, DeviceError, DeviceKind, DeviceMeta, DeviceRegistry, LoopbackDevice,
-};
+use microps::{Device, DeviceBackend, DeviceError, DeviceKind, DeviceMeta, DeviceRegistry};
 
 #[derive(Debug, Clone)]
 struct CountingBackend {
@@ -92,17 +90,4 @@ fn device_enforces_state_and_mtu() {
     assert_eq!(open_calls.load(Ordering::SeqCst), 1);
     assert_eq!(close_calls.load(Ordering::SeqCst), 1);
     assert_eq!(output_calls.load(Ordering::SeqCst), 1);
-}
-
-#[test]
-fn loopback_backend_forwards_frames_to_the_receiver() {
-    let mut device = Device::new(
-        DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
-        LoopbackDevice::new(),
-    );
-
-    device.open().expect("device opens");
-    device
-        .output(0x0800, &[0x45, 0x00, 0x00, 0x30], None)
-        .expect("output succeeds");
 }

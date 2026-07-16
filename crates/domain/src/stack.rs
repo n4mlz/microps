@@ -1,16 +1,16 @@
-use crate::{DeviceMeta, Platform, debug, debugdump, error, info, protocol};
+use crate::{DeviceMeta, InterfaceRegistry, Platform, debug, debugdump, error, info, protocol};
 
-/// Temporary ingress hook for loopback-style delivery.
+/// Delivers a received frame to the protocol stack.
 ///
 /// This currently logs the frame and dispatches known EtherTypes to protocol handlers.
-pub fn net_input(meta: &DeviceMeta, frame_type: u16, data: &[u8], dst: Option<&[u8]>) {
+pub fn net_input(meta: &DeviceMeta, interfaces: &InterfaceRegistry, frame_type: u16, data: &[u8]) {
     debug!(
         "dev={}, type=0x{frame_type:04x}, len={}",
         meta.name(),
         data.len()
     );
     debugdump(data);
-    let _ = protocol::Protocols::input(frame_type, meta, data, dst);
+    protocol::Protocols::input(frame_type, meta, data, interfaces)
 }
 
 /// Protocol stack lifecycle.
