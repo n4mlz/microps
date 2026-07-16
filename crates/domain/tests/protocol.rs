@@ -1,6 +1,59 @@
 use microps::protocol::{
-    Ipv4, Ipv4Addr, Ipv4Error, Ipv4Header, Ipv4Interface, Ipv4Packet, Protocol,
+    EthernetAddress, EthernetError, EthernetFrame, Ipv4, Ipv4Addr, Ipv4Error, Ipv4Header,
+    Ipv4Interface, Ipv4Packet, Protocol, ethertype,
 };
+
+#[test]
+fn ethernet_common_ethertypes_match_wire_values() {
+    assert_eq!(ethertype::IPV4, 0x0800);
+    assert_eq!(ethertype::ARP, 0x0806);
+    assert_eq!(ethertype::IPV6, 0x86dd);
+}
+
+#[test]
+fn ethernet_address_parses_and_formats_colon_hex() {
+    let address = "02:00:5e:10:20:ff"
+        .parse::<EthernetAddress>()
+        .expect("valid Ethernet address");
+
+    assert_eq!(address.octets(), [0x02, 0x00, 0x5e, 0x10, 0x20, 0xff]);
+    assert_eq!(address.to_string(), "02:00:5e:10:20:ff");
+    assert_eq!(EthernetAddress::ANY.to_string(), "00:00:00:00:00:00");
+    assert_eq!(EthernetAddress::BROADCAST.to_string(), "ff:ff:ff:ff:ff:ff");
+}
+
+#[test]
+fn ethernet_address_rejects_malformed_text() {
+    assert!("02:00:5e:10:20".parse::<EthernetAddress>().is_err());
+    assert!("02:00:5e:10:20:100".parse::<EthernetAddress>().is_err());
+    assert!("02-00-5e-10-20-ff".parse::<EthernetAddress>().is_err());
+}
+
+#[test]
+fn ethernet_frame_parses_header_and_borrows_payload() {
+    let frame = [
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02, 0x00, 0x5e, 0x10, 0x20, 0xff, 0x08, 0x00, 0xaa,
+        0xbb,
+    ];
+
+    let frame = EthernetFrame::try_from(&frame[..]).expect("valid Ethernet frame");
+
+    assert_eq!(frame.destination(), EthernetAddress::BROADCAST);
+    assert_eq!(
+        frame.source(),
+        EthernetAddress::from([0x02, 0x00, 0x5e, 0x10, 0x20, 0xff])
+    );
+    assert_eq!(frame.ethertype(), 0x0800);
+    assert_eq!(frame.payload(), &[0xaa, 0xbb]);
+}
+
+#[test]
+fn ethernet_frame_rejects_short_header() {
+    assert_eq!(
+        EthernetFrame::try_from(&[0; 13][..]),
+        Err(EthernetError::TooShort { len: 13 })
+    );
+}
 
 #[test]
 fn ipv4_protocol_type_matches_the_raw_value() {
