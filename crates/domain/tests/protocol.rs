@@ -1,7 +1,21 @@
-use microps::protocol::{
-    EthernetAddress, EthernetError, EthernetFrame, Ipv4, Ipv4Addr, Ipv4Error, Ipv4Header,
-    Ipv4Interface, Ipv4Packet, Protocol, ethertype,
+use microps::{
+    DeviceKind, DeviceMeta,
+    protocol::{
+        EthernetAddress, EthernetError, EthernetFrame, Ipv4, Ipv4Addr, Ipv4Error, Ipv4Header,
+        Ipv4Interface, Ipv4Packet, Protocol, ethertype,
+    },
 };
+
+#[test]
+fn protocol_input_queue_drops_packets_after_reaching_its_bound() {
+    let mut queue = microps::ProtocolInputQueue::new();
+    let meta = DeviceMeta::new("net0", DeviceKind::Loopback, 1500);
+
+    for _ in 0..256 {
+        assert!(queue.push(0x0800, &meta, &[]));
+    }
+    assert!(!queue.push(0x0800, &meta, &[]));
+}
 
 #[test]
 fn ethernet_common_ethertypes_match_wire_values() {

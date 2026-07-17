@@ -12,7 +12,7 @@ pub enum AddressFamily {
 }
 
 /// Common behavior required from a device's network interface.
-pub trait NetInterface: core::fmt::Debug + Send {
+pub trait NetInterface: core::fmt::Debug + Send + Sync {
     fn family(&self) -> AddressFamily;
 
     fn accepts(&self, address: &[u8]) -> bool;

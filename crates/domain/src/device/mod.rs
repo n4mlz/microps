@@ -91,6 +91,8 @@ pub enum DeviceError {
     MissingDestination,
     #[error("invalid Ethernet destination address length: {len} bytes")]
     InvalidDestination { len: usize },
+    #[error("invalid device handle: {handle}")]
+    InvalidHandle { handle: usize },
 }
 
 /// A frame received from a device, borrowing the backend's receive buffer.

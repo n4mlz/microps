@@ -51,8 +51,4 @@ impl DeviceRegistry {
             let _ = device.close();
         }
     }
-
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Device> {
-        self.devices.iter_mut()
-    }
 }

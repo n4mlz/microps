@@ -48,8 +48,13 @@ impl Irq for LinuxPlatform {
             return Ok(());
         }
 
-        let mut signals = Signals::new([SIGHUP, SIGINT, crate::driver::ether_tap_irq() as i32])
-            .map_err(|error| error.to_string())?;
+        let mut signals = Signals::new([
+            SIGHUP,
+            SIGINT,
+            crate::driver::ether_tap_irq() as i32,
+            crate::driver::SOFT_IRQ as i32,
+        ])
+        .map_err(|error| error.to_string())?;
         *slot = Some(thread::spawn(move || {
             for signal in signals.forever() {
                 if signal == SIGHUP {
