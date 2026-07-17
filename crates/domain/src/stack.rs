@@ -1,32 +1,40 @@
 use crate::{
-    DeviceError, DeviceMeta, DeviceRegistry, InterfaceRegistry, Platform, debug, debugdump, error,
-    info, protocol,
+    DeviceError, DeviceHandle, DeviceMeta, DeviceRegistry, InterfaceRegistry, Platform,
+    ProtocolInputQueue, debug, debugdump, error, info, warn,
 };
 
-/// Delivers a received frame to the protocol stack.
+/// Queues a received frame for deferred protocol processing.
 ///
 /// This currently logs the frame and dispatches known EtherTypes to protocol handlers.
-pub fn net_input(meta: &DeviceMeta, interfaces: &InterfaceRegistry, frame_type: u16, data: &[u8]) {
+pub fn net_input(queue: &mut ProtocolInputQueue, meta: &DeviceMeta, frame_type: u16, data: &[u8]) {
     debug!(
         "dev={}, type=0x{frame_type:04x}, len={}",
         meta.name(),
         data.len()
     );
     debugdump(data);
-    protocol::Protocols::input(frame_type, meta, data, interfaces)
+    if !queue.push(frame_type, meta, data) {
+        warn!("protocol input queue is full; dropping frame");
+    }
 }
 
 pub fn input(
     registry: &mut DeviceRegistry,
-    interfaces: &InterfaceRegistry,
+    handle: DeviceHandle,
+    queue: &mut ProtocolInputQueue,
 ) -> Result<(), DeviceError> {
-    for device in registry.iter_mut() {
-        let meta = device.meta().clone();
-        while let Some(frame) = device.input()? {
-            net_input(&meta, interfaces, frame.frame_type(), frame.data());
-        }
+    let device = registry
+        .device_mut(handle)
+        .ok_or(DeviceError::InvalidHandle { handle })?;
+    let meta = device.meta().clone();
+    while let Some(frame) = device.input()? {
+        net_input(queue, &meta, frame.frame_type(), frame.data());
     }
     Ok(())
+}
+
+pub fn soft_input(queue: &mut ProtocolInputQueue, interfaces: &InterfaceRegistry) {
+    queue.process(interfaces);
 }
 
 /// Protocol stack lifecycle.
