@@ -2,9 +2,7 @@ use std::{thread, time::Duration};
 
 use linux::{LinuxPlatform, should_terminate};
 use microps::{
-    Device, DeviceKind, DeviceMeta, DeviceRegistry, InterfaceRegistry, LoopbackDevice, Stack,
-    debug, error, net_input,
-    protocol::{Ipv4Addr, Ipv4Interface},
+    Device, DeviceKind, DeviceMeta, DeviceRegistry, LoopbackDevice, Stack, debug, error,
 };
 
 const TEST_DATA: &[u8] = &[
@@ -21,31 +19,18 @@ fn main() {
         DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
         LoopbackDevice::new(),
     ));
-    let mut interfaces = InterfaceRegistry::new();
-    interfaces
-        .add(Ipv4Interface::new(
-            Ipv4Addr::from([127, 0, 0, 1]),
-            Ipv4Addr::from([255, 0, 0, 0]),
-        ))
-        .expect("loopback interface registers");
     registry.open_all().unwrap();
 
     debug!("press Ctrl+C to terminate");
     while !should_terminate() {
-        if let Err(error_value) = registry
+        let result = registry
             .device_mut(handle)
             .unwrap()
-            .output(0x0800, TEST_DATA, None)
-        {
+            .output(0x0800, TEST_DATA, None);
+        if let Err(error_value) = result {
             error!("net_device_output() failure: {error_value}");
             break;
         }
-        net_input(
-            registry.device(handle).unwrap().meta(),
-            &interfaces,
-            0x0800,
-            TEST_DATA,
-        );
         thread::sleep(Duration::from_secs(1));
     }
 

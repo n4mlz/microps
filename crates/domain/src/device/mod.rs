@@ -126,11 +126,6 @@ impl Device {
         Ok(())
     }
 
-    /// Outputs a raw frame after validating device state and MTU.
-    ///
-    /// This raw API does not select an IP source interface. Source selection
-    /// and routing belong to a future IP transmit API; until then, that API
-    /// should reject an unspecified source rather than guess an interface.
     pub fn output(
         &mut self,
         frame_type: u16,
