@@ -32,22 +32,12 @@ impl CountingBackend {
 }
 
 impl DeviceBackend for CountingBackend {
-    fn open(
-        &mut self,
-        _meta: &DeviceMeta,
-        _state: &microps::DeviceState,
-    ) -> Result<(), DeviceError> {
+    fn open(&mut self, _meta: &DeviceMeta, _state: &microps::DeviceState) {
         self.open_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(())
     }
 
-    fn close(
-        &mut self,
-        _meta: &DeviceMeta,
-        _state: &microps::DeviceState,
-    ) -> Result<(), DeviceError> {
+    fn close(&mut self, _meta: &DeviceMeta, _state: &microps::DeviceState) {
         self.close_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(())
     }
 
     fn output(
@@ -57,9 +47,8 @@ impl DeviceBackend for CountingBackend {
         _frame_type: u16,
         _data: &[u8],
         _dst: Option<&[u8]>,
-    ) -> Result<(), DeviceError> {
+    ) {
         self.output_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(())
     }
 }
 

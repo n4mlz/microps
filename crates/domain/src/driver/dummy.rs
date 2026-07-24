@@ -1,4 +1,4 @@
-use crate::{DeviceBackend, DeviceError, DeviceMeta, DeviceState, debugdump};
+use crate::{DeviceBackend, DeviceMeta, DeviceState, debugdump};
 
 /// Architecture-independent dummy device used in step01.
 #[derive(Debug, Default, Clone, Copy)]
@@ -18,16 +18,7 @@ impl DeviceBackend for DummyDevice {
         _frame_type: u16,
         data: &[u8],
         _dst: Option<&[u8]>,
-    ) -> Result<(), DeviceError> {
+    ) {
         debugdump(data);
-        Ok(())
-    }
-
-    fn input(
-        &mut self,
-        _meta: &DeviceMeta,
-        _state: &DeviceState,
-    ) -> Result<Option<crate::ReceivedFrame<'_>>, DeviceError> {
-        Ok(None)
     }
 }

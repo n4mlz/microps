@@ -4,8 +4,7 @@ mod ethernet;
 mod ipv4;
 
 pub use ethernet::{
-    ADDRESS_LEN, EthernetAddress, EthernetAddressParseError, EthernetError, EthernetFrame,
-    HEADER_LEN, ethertype,
+    EthernetAddress, EthernetAddressParseError, EthernetError, EthernetFrame, ethertype,
 };
 pub use ipv4::{
     Ipv4, Ipv4Addr, Ipv4AddrParseError, Ipv4Error, Ipv4Header, Ipv4Interface, Ipv4Packet,

@@ -1,89 +1,55 @@
-use std::{
-    sync::{Arc, Mutex},
-    thread,
-    time::Duration,
-};
+use std::{thread, time::Duration};
 
-use linux::{EtherTapDevice, LinuxPlatform, ether_tap_irq, should_terminate};
+use linux::{LinuxPlatform, should_terminate};
 use microps::{
-    Device, DeviceKind, DeviceMeta, DeviceRegistry, InterfaceRegistry, Irq, Stack, debug, error,
-    input,
+    Device, DeviceKind, DeviceMeta, DeviceRegistry, InterfaceRegistry, LoopbackDevice, Stack,
+    debug, error, net_input,
     protocol::{Ipv4Addr, Ipv4Interface},
 };
 
-const TAP_NAME: &str = "microps0";
-const TAP_ADDRESS: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
-const TAP_IP: [u8; 4] = [10, 0, 0, 2];
-const TAP_NETMASK: [u8; 4] = [255, 255, 255, 0];
+const TEST_DATA: &[u8] = &[
+    0x45, 0x00, 0x00, 0x30, 0x00, 0x80, 0x00, 0x00, 0xff, 0x01, 0xbd, 0x4a, 0x7f, 0x00, 0x00, 0x01,
+    0x7f, 0x00, 0x00, 0x01, 0x08, 0x00, 0x35, 0x64, 0x00, 0x80, 0x00, 0x01, 0x31, 0x32, 0x33, 0x34,
+    0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0x21, 0x40, 0x23, 0x24, 0x25, 0x5e, 0x26, 0x2a, 0x28, 0x29,
+];
 
 fn main() {
     Stack::init::<LinuxPlatform>().unwrap();
 
-    let mut runtime = Runtime {
-        registry: DeviceRegistry::new(),
-        interfaces: InterfaceRegistry::new(),
-    };
-    runtime.registry.register(Device::new(
-        DeviceMeta::new(TAP_NAME, DeviceKind::Ethernet, 1500),
-        EtherTapDevice::new(TAP_NAME, TAP_ADDRESS.into()),
+    let mut registry = DeviceRegistry::new();
+    let handle = registry.register(Device::new(
+        DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
+        LoopbackDevice::new(),
     ));
-    runtime
-        .interfaces
+    let mut interfaces = InterfaceRegistry::new();
+    interfaces
         .add(Ipv4Interface::new(
-            Ipv4Addr::from(TAP_IP),
-            Ipv4Addr::from(TAP_NETMASK),
+            Ipv4Addr::from([127, 0, 0, 1]),
+            Ipv4Addr::from([255, 0, 0, 0]),
         ))
-        .expect("TAP interface registers");
-    let runtime = Arc::new(Mutex::new(runtime));
-    let irq_runtime = Arc::clone(&runtime);
-    LinuxPlatform::register(
-        ether_tap_irq(),
-        Box::new(move || input_interrupt(&irq_runtime)),
-    )
-    .expect("TAP IRQ registers");
-    LinuxPlatform::run().expect("IRQ dispatcher starts");
-
-    if let Err(error_value) = runtime
-        .lock()
-        .expect("runtime mutex poisoned")
-        .registry
-        .open_all()
-    {
-        error!("device initialization failure: {error_value}");
-        Stack::shutdown::<LinuxPlatform>();
-        return;
-    }
+        .expect("loopback interface registers");
+    registry.open_all().unwrap();
 
     debug!("press Ctrl+C to terminate");
     while !should_terminate() {
-        thread::sleep(Duration::from_millis(10));
+        if let Err(error_value) = registry
+            .device_mut(handle)
+            .unwrap()
+            .output(0x0800, TEST_DATA, None)
+        {
+            error!("net_device_output() failure: {error_value}");
+            break;
+        }
+        net_input(
+            registry.device(handle).unwrap().meta(),
+            &interfaces,
+            0x0800,
+            TEST_DATA,
+        );
+        thread::sleep(Duration::from_secs(1));
     }
 
     debug!("terminate");
+    registry.close_all();
     Stack::shutdown::<LinuxPlatform>();
-    let mut runtime = Arc::try_unwrap(runtime)
-        .expect("IRQ runtime still has references")
-        .into_inner()
-        .expect("runtime mutex poisoned");
-    runtime.registry.close_all();
-}
-
-#[derive(Debug)]
-struct Runtime {
-    registry: DeviceRegistry,
-    interfaces: InterfaceRegistry,
-}
-
-fn input_interrupt(runtime: &Arc<Mutex<Runtime>>) {
-    let result = {
-        let mut runtime = runtime.lock().expect("runtime mutex poisoned");
-        let Runtime {
-            registry,
-            interfaces,
-        } = &mut *runtime;
-        input(registry, interfaces)
-    };
-    if let Err(error_value) = result {
-        error!("device input failure: {error_value}");
-    }
 }

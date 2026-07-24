@@ -4,7 +4,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use microps::{Irq, Platform, Stdout};
+use microps::{Platform, Stdout};
 
 use crate::LinuxPlatform;
 
@@ -33,7 +33,5 @@ impl Platform for LinuxPlatform {
         Ok(())
     }
 
-    fn shutdown() {
-        <LinuxPlatform as Irq>::shutdown();
-    }
+    fn shutdown() {}
 }
