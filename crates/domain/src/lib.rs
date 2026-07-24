@@ -19,5 +19,4 @@ pub use os::{
     Irq, Lock, Platform, Random, Stdout,
     stdout::{Writer, debugdump},
 };
-pub use protocol::ProtocolInputQueue;
-pub use stack::{Stack, input, net_input, soft_input};
+pub use stack::{Stack, input, net_input};

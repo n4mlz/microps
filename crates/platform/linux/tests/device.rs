@@ -1,9 +1,8 @@
 use linux::LinuxPlatform;
 use microps::{
-    Device, DeviceKind, DeviceMeta, DeviceRegistry, InterfaceRegistry, LoopbackDevice,
-    ProtocolInputQueue, Stack, net_input,
+    Device, DeviceKind, DeviceMeta, DeviceRegistry, InterfaceRegistry, LoopbackDevice, Stack,
+    net_input,
     protocol::{Ipv4Addr, Ipv4Interface},
-    soft_input,
 };
 
 const TEST_DATA: &[u8] = &[
@@ -45,14 +44,12 @@ fn loopback_device_runs_through_the_stack() {
         .expect("device exists")
         .output(0x0800, TEST_DATA, None)
         .expect("loopback output succeeds");
-    let mut queue = ProtocolInputQueue::new();
     net_input(
-        &mut queue,
         registry.device(handle).expect("device exists").meta(),
+        &interfaces,
         0x0800,
         TEST_DATA,
     );
-    soft_input(&mut queue, &interfaces);
     registry.close_all();
     Stack::shutdown::<LinuxPlatform>();
 }

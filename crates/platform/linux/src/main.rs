@@ -1,16 +1,14 @@
 use std::{
-    mem,
     sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
 
-use linux::{EtherTapDevice, LinuxPlatform, SOFT_IRQ, ether_tap_irq, should_terminate};
+use linux::{EtherTapDevice, LinuxPlatform, ether_tap_irq, should_terminate};
 use microps::{
-    Device, DeviceKind, DeviceMeta, DeviceRegistry, InterfaceRegistry, Irq, ProtocolInputQueue,
-    Stack, debug, error, input,
+    Device, DeviceKind, DeviceMeta, DeviceRegistry, InterfaceRegistry, Irq, Stack, debug, error,
+    input,
     protocol::{Ipv4Addr, Ipv4Interface},
-    soft_input,
 };
 
 const TAP_NAME: &str = "microps0";
@@ -22,19 +20,13 @@ fn main() {
     Stack::init::<LinuxPlatform>().unwrap();
 
     let mut runtime = Runtime {
-        registry: Mutex::new(DeviceRegistry::new()),
+        registry: DeviceRegistry::new(),
         interfaces: InterfaceRegistry::new(),
-        queue: Mutex::new(ProtocolInputQueue::new()),
-        handle: 0,
     };
-    runtime.handle = runtime
-        .registry
-        .get_mut()
-        .expect("registry mutex is not poisoned")
-        .register(Device::new(
-            DeviceMeta::new(TAP_NAME, DeviceKind::Ethernet, 1500),
-            EtherTapDevice::new(TAP_NAME, TAP_ADDRESS.into()),
-        ));
+    runtime.registry.register(Device::new(
+        DeviceMeta::new(TAP_NAME, DeviceKind::Ethernet, 1500),
+        EtherTapDevice::new(TAP_NAME, TAP_ADDRESS.into()),
+    ));
     runtime
         .interfaces
         .add(Ipv4Interface::new(
@@ -42,19 +34,7 @@ fn main() {
             Ipv4Addr::from(TAP_NETMASK),
         ))
         .expect("TAP interface registers");
-    let runtime = Arc::new(runtime);
-    let soft_runtime = Arc::clone(&runtime);
-    LinuxPlatform::register(
-        SOFT_IRQ,
-        Box::new(move || {
-            let mut queue = {
-                let mut queue = soft_runtime.queue.lock().expect("queue mutex poisoned");
-                mem::take(&mut *queue)
-            };
-            soft_input(&mut queue, &soft_runtime.interfaces);
-        }),
-    )
-    .expect("soft IRQ registers");
+    let runtime = Arc::new(Mutex::new(runtime));
     let irq_runtime = Arc::clone(&runtime);
     LinuxPlatform::register(
         ether_tap_irq(),
@@ -64,9 +44,9 @@ fn main() {
     LinuxPlatform::run().expect("IRQ dispatcher starts");
 
     if let Err(error_value) = runtime
-        .registry
         .lock()
-        .expect("registry mutex poisoned")
+        .expect("runtime mutex poisoned")
+        .registry
         .open_all()
     {
         error!("device initialization failure: {error_value}");
@@ -81,31 +61,29 @@ fn main() {
 
     debug!("terminate");
     Stack::shutdown::<LinuxPlatform>();
-    let runtime = Arc::try_unwrap(runtime).expect("IRQ runtime still has references");
-    runtime
-        .registry
-        .lock()
-        .expect("registry mutex poisoned")
-        .close_all();
+    let mut runtime = Arc::try_unwrap(runtime)
+        .expect("IRQ runtime still has references")
+        .into_inner()
+        .expect("runtime mutex poisoned");
+    runtime.registry.close_all();
 }
 
 #[derive(Debug)]
 struct Runtime {
-    registry: Mutex<DeviceRegistry>,
+    registry: DeviceRegistry,
     interfaces: InterfaceRegistry,
-    queue: Mutex<ProtocolInputQueue>,
-    handle: usize,
 }
 
-fn input_interrupt(runtime: &Arc<Runtime>) {
+fn input_interrupt(runtime: &Arc<Mutex<Runtime>>) {
     let result = {
-        let mut registry = runtime.registry.lock().expect("registry mutex poisoned");
-        let mut queue = runtime.queue.lock().expect("queue mutex poisoned");
-        input(&mut registry, runtime.handle, &mut queue)
+        let mut runtime = runtime.lock().expect("runtime mutex poisoned");
+        let Runtime {
+            registry,
+            interfaces,
+        } = &mut *runtime;
+        input(registry, interfaces)
     };
     if let Err(error_value) = result {
         error!("device input failure: {error_value}");
-    } else if let Err(error_value) = LinuxPlatform::raise(SOFT_IRQ) {
-        error!("soft IRQ raise failure: {error_value}");
     }
 }

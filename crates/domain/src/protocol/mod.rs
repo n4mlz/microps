@@ -1,5 +1,3 @@
-use alloc::{collections::VecDeque, vec::Vec};
-
 use crate::{DeviceMeta, InterfaceRegistry};
 
 mod ethernet;
@@ -18,49 +16,6 @@ pub trait Protocol {
     const TYPE: u16;
 
     fn input(meta: &DeviceMeta, data: &[u8], interfaces: &InterfaceRegistry);
-}
-
-/// Owned packet waiting for protocol-level processing.
-#[derive(Debug)]
-struct QueuedPacket {
-    frame_type: u16,
-    meta: DeviceMeta,
-    data: Vec<u8>,
-}
-
-/// Input queue separating device interrupt handling from protocol processing.
-#[derive(Debug, Default)]
-pub struct ProtocolInputQueue {
-    packets: VecDeque<QueuedPacket>,
-}
-
-const MAX_QUEUED_PACKETS: usize = 256;
-
-impl ProtocolInputQueue {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn push(&mut self, frame_type: u16, meta: &DeviceMeta, data: &[u8]) -> bool {
-        if frame_type != Ipv4::TYPE {
-            return true;
-        }
-        if self.packets.len() >= MAX_QUEUED_PACKETS {
-            return false;
-        }
-        self.packets.push_back(QueuedPacket {
-            frame_type,
-            meta: meta.clone(),
-            data: data.to_vec(),
-        });
-        true
-    }
-
-    pub fn process(&mut self, interfaces: &InterfaceRegistry) {
-        while let Some(packet) = self.packets.pop_front() {
-            Protocols::input(packet.frame_type, &packet.meta, &packet.data, interfaces);
-        }
-    }
 }
 
 /// Protocol dispatcher and future extension point.
