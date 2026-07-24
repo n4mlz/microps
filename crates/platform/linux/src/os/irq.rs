@@ -1,83 +1,58 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Mutex, OnceLock},
-    thread::{self, JoinHandle},
 };
 
 use microps::Irq;
-use signal_hook::{
-    consts::{SIGHUP, SIGINT},
-    iterator::Signals,
-};
 
 use crate::LinuxPlatform;
 
-type Handler = Box<dyn Fn() + Send>;
+type Handler = fn(usize, usize);
 
-static HANDLERS: OnceLock<Mutex<HashMap<usize, Handler>>> = OnceLock::new();
-static THREAD: OnceLock<Mutex<Option<JoinHandle<()>>>> = OnceLock::new();
+static HANDLERS: OnceLock<Mutex<HashMap<usize, (Handler, usize)>>> = OnceLock::new();
+static INSTALLED: OnceLock<Mutex<HashSet<usize>>> = OnceLock::new();
 
-fn handlers() -> &'static Mutex<HashMap<usize, Handler>> {
+fn handlers() -> &'static Mutex<HashMap<usize, (Handler, usize)>> {
     HANDLERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn thread() -> &'static Mutex<Option<JoinHandle<()>>> {
-    THREAD.get_or_init(|| Mutex::new(None))
+fn installed() -> &'static Mutex<HashSet<usize>> {
+    INSTALLED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn install_signal(irq: usize) {
+    let mut installed = installed().lock().expect("irq install mutex poisoned");
+    if !installed.insert(irq) {
+        return;
+    }
+    unsafe {
+        let _ = signal_hook::low_level::register(irq as i32, move || {
+            if let Some((handler, arg)) = handlers()
+                .lock()
+                .expect("irq registry mutex poisoned")
+                .get(&irq)
+                .copied()
+            {
+                handler(irq, arg);
+            }
+        });
+    }
 }
 
 impl Irq for LinuxPlatform {
-    type Error = String;
+    type Error = core::convert::Infallible;
 
-    fn register(irq: usize, handler: Handler) -> Result<(), Self::Error> {
+    fn register(irq: usize, handler: Handler, arg: usize) -> Result<(), Self::Error> {
         handlers()
             .lock()
-            .map_err(|_| "IRQ registry mutex poisoned".to_owned())?
-            .insert(irq, handler);
+            .expect("irq registry mutex poisoned")
+            .insert(irq, (handler, arg));
+        install_signal(irq);
         Ok(())
     }
 
     fn raise(irq: usize) -> Result<(), Self::Error> {
-        signal_hook::low_level::raise(irq as i32).map_err(|error| error.to_string())
-    }
-
-    fn run() -> Result<(), Self::Error> {
-        let mut slot = thread()
-            .lock()
-            .map_err(|_| "IRQ thread mutex poisoned".to_owned())?;
-        if slot.is_some() {
-            return Ok(());
-        }
-
-        let mut signals = Signals::new([
-            SIGHUP,
-            SIGINT,
-            crate::driver::ether_tap_irq() as i32,
-            crate::driver::SOFT_IRQ as i32,
-        ])
-        .map_err(|error| error.to_string())?;
-        *slot = Some(thread::spawn(move || {
-            for signal in signals.forever() {
-                if signal == SIGHUP {
-                    break;
-                }
-                let registered = handlers().lock().expect("IRQ registry mutex poisoned");
-                if let Some(handler) = registered.get(&(signal as usize)) {
-                    handler();
-                }
-            }
-        }));
+        signal_hook::low_level::raise(irq as i32).expect("failed to raise signal");
         Ok(())
-    }
-
-    fn shutdown() {
-        let Some(handle) = thread().lock().expect("IRQ thread mutex poisoned").take() else {
-            return;
-        };
-        let _ = signal_hook::low_level::raise(SIGHUP);
-        let _ = handle.join();
-        handlers()
-            .lock()
-            .expect("IRQ registry mutex poisoned")
-            .clear();
     }
 }

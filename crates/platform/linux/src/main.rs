@@ -1,111 +1,40 @@
-use std::{
-    mem,
-    sync::{Arc, Mutex},
-    thread,
-    time::Duration,
-};
+use std::{thread, time::Duration};
 
-use linux::{EtherTapDevice, LinuxPlatform, SOFT_IRQ, ether_tap_irq, should_terminate};
+use linux::{LinuxPlatform, should_terminate};
 use microps::{
-    Device, DeviceKind, DeviceMeta, DeviceRegistry, InterfaceRegistry, Irq, ProtocolInputQueue,
-    Stack, debug, error, input,
-    protocol::{Ipv4Addr, Ipv4Interface},
-    soft_input,
+    Device, DeviceKind, DeviceMeta, DeviceRegistry, LoopbackDevice, Stack, debug, error,
 };
 
-const TAP_NAME: &str = "microps0";
-const TAP_ADDRESS: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
-const TAP_IP: [u8; 4] = [10, 0, 0, 2];
-const TAP_NETMASK: [u8; 4] = [255, 255, 255, 0];
+const TEST_DATA: &[u8] = &[
+    0x45, 0x00, 0x00, 0x30, 0x00, 0x80, 0x00, 0x00, 0xff, 0x01, 0xbd, 0x4a, 0x7f, 0x00, 0x00, 0x01,
+    0x7f, 0x00, 0x00, 0x01, 0x08, 0x00, 0x35, 0x64, 0x00, 0x80, 0x00, 0x01, 0x31, 0x32, 0x33, 0x34,
+    0x35, 0x36, 0x37, 0x38, 0x39, 0x30, 0x21, 0x40, 0x23, 0x24, 0x25, 0x5e, 0x26, 0x2a, 0x28, 0x29,
+];
 
 fn main() {
     Stack::init::<LinuxPlatform>().unwrap();
 
-    let mut runtime = Runtime {
-        registry: Mutex::new(DeviceRegistry::new()),
-        interfaces: InterfaceRegistry::new(),
-        queue: Mutex::new(ProtocolInputQueue::new()),
-        handle: 0,
-    };
-    runtime.handle = runtime
-        .registry
-        .get_mut()
-        .expect("registry mutex is not poisoned")
-        .register(Device::new(
-            DeviceMeta::new(TAP_NAME, DeviceKind::Ethernet, 1500),
-            EtherTapDevice::new(TAP_NAME, TAP_ADDRESS.into()),
-        ));
-    runtime
-        .interfaces
-        .add(Ipv4Interface::new(
-            Ipv4Addr::from(TAP_IP),
-            Ipv4Addr::from(TAP_NETMASK),
-        ))
-        .expect("TAP interface registers");
-    let runtime = Arc::new(runtime);
-    let soft_runtime = Arc::clone(&runtime);
-    LinuxPlatform::register(
-        SOFT_IRQ,
-        Box::new(move || {
-            let mut queue = {
-                let mut queue = soft_runtime.queue.lock().expect("queue mutex poisoned");
-                mem::take(&mut *queue)
-            };
-            soft_input(&mut queue, &soft_runtime.interfaces);
-        }),
-    )
-    .expect("soft IRQ registers");
-    let irq_runtime = Arc::clone(&runtime);
-    LinuxPlatform::register(
-        ether_tap_irq(),
-        Box::new(move || input_interrupt(&irq_runtime)),
-    )
-    .expect("TAP IRQ registers");
-    LinuxPlatform::run().expect("IRQ dispatcher starts");
-
-    if let Err(error_value) = runtime
-        .registry
-        .lock()
-        .expect("registry mutex poisoned")
-        .open_all()
-    {
-        error!("device initialization failure: {error_value}");
-        Stack::shutdown::<LinuxPlatform>();
-        return;
-    }
+    let mut registry = DeviceRegistry::new();
+    let handle = registry.register(Device::new(
+        DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
+        LoopbackDevice::new(),
+    ));
+    registry.open_all().unwrap();
 
     debug!("press Ctrl+C to terminate");
     while !should_terminate() {
-        thread::sleep(Duration::from_millis(10));
+        let result = registry
+            .device_mut(handle)
+            .unwrap()
+            .output(0x0800, TEST_DATA, None);
+        if let Err(error_value) = result {
+            error!("net_device_output() failure: {error_value}");
+            break;
+        }
+        thread::sleep(Duration::from_secs(1));
     }
 
     debug!("terminate");
+    registry.close_all();
     Stack::shutdown::<LinuxPlatform>();
-    let runtime = Arc::try_unwrap(runtime).expect("IRQ runtime still has references");
-    runtime
-        .registry
-        .lock()
-        .expect("registry mutex poisoned")
-        .close_all();
-}
-
-#[derive(Debug)]
-struct Runtime {
-    registry: Mutex<DeviceRegistry>,
-    interfaces: InterfaceRegistry,
-    queue: Mutex<ProtocolInputQueue>,
-    handle: usize,
-}
-
-fn input_interrupt(runtime: &Arc<Runtime>) {
-    let result = {
-        let mut registry = runtime.registry.lock().expect("registry mutex poisoned");
-        let mut queue = runtime.queue.lock().expect("queue mutex poisoned");
-        input(&mut registry, runtime.handle, &mut queue)
-    };
-    if let Err(error_value) = result {
-        error!("device input failure: {error_value}");
-    } else if let Err(error_value) = LinuxPlatform::raise(SOFT_IRQ) {
-        error!("soft IRQ raise failure: {error_value}");
-    }
 }

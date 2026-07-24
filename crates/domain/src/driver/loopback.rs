@@ -1,6 +1,6 @@
-use crate::{DeviceBackend, DeviceError, DeviceMeta, DeviceState, debug, debugdump};
+use crate::{DeviceBackend, DeviceMeta, DeviceState, debug, debugdump, net_input};
 
-/// Loopback device that logs transmitted frames.
+/// Loopback device that feeds transmitted frames back into the stack.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct LoopbackDevice;
 
@@ -17,22 +17,14 @@ impl DeviceBackend for LoopbackDevice {
         _state: &DeviceState,
         frame_type: u16,
         data: &[u8],
-        _dst: Option<&[u8]>,
-    ) -> Result<(), DeviceError> {
+        dst: Option<&[u8]>,
+    ) {
         debug!(
             "dev={}, type=0x{frame_type:04x}, len={}",
             meta.name(),
             data.len()
         );
         debugdump(data);
-        Ok(())
-    }
-
-    fn input(
-        &mut self,
-        _meta: &DeviceMeta,
-        _state: &DeviceState,
-    ) -> Result<Option<crate::ReceivedFrame<'_>>, DeviceError> {
-        Ok(None)
+        net_input(meta, frame_type, data, dst);
     }
 }

@@ -1,14 +1,10 @@
-use crate::{DeviceError, DeviceMeta, DeviceState, ReceivedFrame};
+use crate::{DeviceMeta, DeviceState};
 
 /// Backend hooks for platform-specific device behavior.
-pub trait DeviceBackend: core::fmt::Debug + Send {
-    fn open(&mut self, _meta: &DeviceMeta, _state: &DeviceState) -> Result<(), DeviceError> {
-        Ok(())
-    }
+pub trait DeviceBackend: core::fmt::Debug {
+    fn open(&mut self, _meta: &DeviceMeta, _state: &DeviceState) {}
 
-    fn close(&mut self, _meta: &DeviceMeta, _state: &DeviceState) -> Result<(), DeviceError> {
-        Ok(())
-    }
+    fn close(&mut self, _meta: &DeviceMeta, _state: &DeviceState) {}
 
     fn output(
         &mut self,
@@ -17,13 +13,5 @@ pub trait DeviceBackend: core::fmt::Debug + Send {
         frame_type: u16,
         data: &[u8],
         dst: Option<&[u8]>,
-    ) -> Result<(), DeviceError>;
-
-    fn input(
-        &mut self,
-        _meta: &DeviceMeta,
-        _state: &DeviceState,
-    ) -> Result<Option<ReceivedFrame<'_>>, DeviceError> {
-        Ok(None)
-    }
+    );
 }

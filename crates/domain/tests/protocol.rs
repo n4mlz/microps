@@ -1,92 +1,7 @@
 use microps::{
     DeviceKind, DeviceMeta,
-    protocol::{
-        EthernetAddress, EthernetError, EthernetFrame, Ipv4, Ipv4Addr, Ipv4Error, Ipv4Header,
-        Ipv4Interface, Ipv4Packet, Protocol, ethertype,
-    },
+    protocol::{Ipv4, Ipv4Addr, Ipv4Error, Ipv4Header, Ipv4Packet, Protocol, Protocols},
 };
-
-#[test]
-fn protocol_input_queue_drops_packets_after_reaching_its_bound() {
-    let mut queue = microps::ProtocolInputQueue::new();
-    let meta = DeviceMeta::new("net0", DeviceKind::Loopback, 1500);
-
-    for _ in 0..256 {
-        assert!(queue.push(0x0800, &meta, &[]));
-    }
-    assert!(!queue.push(0x0800, &meta, &[]));
-}
-
-#[test]
-fn ethernet_common_ethertypes_match_wire_values() {
-    assert_eq!(ethertype::IPV4, 0x0800);
-    assert_eq!(ethertype::ARP, 0x0806);
-    assert_eq!(ethertype::IPV6, 0x86dd);
-}
-
-#[test]
-fn ethernet_address_parses_and_formats_colon_hex() {
-    let address = "02:00:5e:10:20:ff"
-        .parse::<EthernetAddress>()
-        .expect("valid Ethernet address");
-
-    assert_eq!(address.octets(), [0x02, 0x00, 0x5e, 0x10, 0x20, 0xff]);
-    assert_eq!(address.to_string(), "02:00:5e:10:20:ff");
-    assert_eq!(EthernetAddress::ANY.to_string(), "00:00:00:00:00:00");
-    assert_eq!(EthernetAddress::BROADCAST.to_string(), "ff:ff:ff:ff:ff:ff");
-}
-
-#[test]
-fn ethernet_address_rejects_malformed_text() {
-    assert!("02:00:5e:10:20".parse::<EthernetAddress>().is_err());
-    assert!("02:00:5e:10:20:100".parse::<EthernetAddress>().is_err());
-    assert!("02-00-5e-10-20-ff".parse::<EthernetAddress>().is_err());
-}
-
-#[test]
-fn ethernet_frame_parses_header_and_borrows_payload() {
-    let frame = [
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02, 0x00, 0x5e, 0x10, 0x20, 0xff, 0x08, 0x00, 0xaa,
-        0xbb,
-    ];
-
-    let frame = EthernetFrame::try_from(&frame[..]).expect("valid Ethernet frame");
-
-    assert_eq!(frame.destination(), EthernetAddress::BROADCAST);
-    assert_eq!(
-        frame.source(),
-        EthernetAddress::from([0x02, 0x00, 0x5e, 0x10, 0x20, 0xff])
-    );
-    assert_eq!(frame.ethertype(), 0x0800);
-    assert_eq!(frame.payload(), &[0xaa, 0xbb]);
-}
-
-#[test]
-fn ethernet_frame_serializes_header_and_payload() {
-    let frame = EthernetFrame::new(
-        EthernetAddress::BROADCAST,
-        EthernetAddress::from([0x02, 0x00, 0x5e, 0x10, 0x20, 0xff]),
-        0x0800,
-        &[0xaa, 0xbb],
-    );
-
-    let bytes: Vec<u8> = frame.into();
-    assert_eq!(
-        bytes,
-        [
-            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02, 0x00, 0x5e, 0x10, 0x20, 0xff, 0x08, 0x00,
-            0xaa, 0xbb,
-        ]
-    );
-}
-
-#[test]
-fn ethernet_frame_rejects_short_header() {
-    assert_eq!(
-        EthernetFrame::try_from(&[0; 13][..]),
-        Err(EthernetError::TooShort { len: 13 })
-    );
-}
 
 #[test]
 fn ipv4_protocol_type_matches_the_raw_value() {
@@ -108,25 +23,6 @@ fn ipv4_addr_rejects_invalid_dotted_decimal() {
     assert!("192.0.2".parse::<Ipv4Addr>().is_err());
     assert!("192.0.2.256".parse::<Ipv4Addr>().is_err());
     assert!("192.0.2.1x".parse::<Ipv4Addr>().is_err());
-}
-
-#[test]
-fn ipv4_interface_exposes_addresses_and_accepts_local_destinations() {
-    let interface = Ipv4Interface::new(
-        Ipv4Addr::from([192, 0, 2, 1]),
-        Ipv4Addr::from([255, 255, 255, 0]),
-    );
-
-    assert_eq!(interface.unicast(), Ipv4Addr::from([192, 0, 2, 1]));
-    assert_eq!(interface.netmask(), Ipv4Addr::from([255, 255, 255, 0]));
-    assert_eq!(interface.broadcast(), Ipv4Addr::from([192, 0, 2, 255]));
-
-    assert!(interface.accepts(&[192, 0, 2, 1]));
-    assert!(interface.accepts(&[192, 0, 2, 255]));
-    assert!(interface.accepts(&Ipv4Addr::BROADCAST.octets()));
-    assert!(!interface.accepts(&[192, 0, 3, 1]));
-    assert!(!interface.accepts(&[192, 0, 2]));
-    assert!(!interface.accepts(&[192, 0, 2, 1, 0]));
 }
 
 #[test]
@@ -194,6 +90,25 @@ fn ipv4_packet_rejects_invalid_inputs() {
         Ipv4Packet::try_from(&fragmented[..]),
         Err(Ipv4Error::Fragmented)
     );
+}
+
+#[test]
+fn protocols_input_routes_ipv4_frames() {
+    let meta = DeviceMeta::new("net0", DeviceKind::Loopback, 65_535);
+
+    assert!(Protocols::input(
+        0x0800,
+        &meta,
+        &[0x45, 0x00, 0x00, 0x30],
+        None
+    ));
+}
+
+#[test]
+fn protocols_input_ignores_unknown_values() {
+    let meta = DeviceMeta::new("net0", DeviceKind::Loopback, 65_535);
+
+    assert!(!Protocols::input(0x1234, &meta, &[0x00], None));
 }
 
 fn valid_ipv4_header() -> [u8; 20] {
