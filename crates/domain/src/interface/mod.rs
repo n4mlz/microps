@@ -25,6 +25,8 @@ pub trait NetInterface: core::fmt::Debug {
 
     fn input(&mut self, data: &[u8]);
 
+    fn has_address(&self, address: &[u8]) -> bool;
+
     fn device(&self) -> Option<DeviceKey>;
 
     fn attach(&mut self, device: DeviceKey) -> Result<(), InterfaceError>;
@@ -88,6 +90,14 @@ impl InterfaceRegistry {
             .find(|(_, interface)| {
                 interface.device() == Some(device) && interface.family() == family
             })
+            .map(|(key, _)| key)
+    }
+
+    /// Reserved for IP output source-interface selection.
+    pub fn _select_by_address(&self, address: &[u8]) -> Option<InterfaceKey> {
+        self.interfaces
+            .iter()
+            .find(|(_, interface)| interface.has_address(address))
             .map(|(key, _)| key)
     }
 }

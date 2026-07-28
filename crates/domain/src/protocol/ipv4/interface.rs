@@ -77,6 +77,13 @@ impl NetInterface for Ipv4Interface {
         debug!("dst: {}", header.destination());
     }
 
+    fn has_address(&self, address: &[u8]) -> bool {
+        let Ok(address) = <[u8; 4]>::try_from(address) else {
+            return false;
+        };
+        Ipv4Addr::from(address) == self.unicast
+    }
+
     fn accepts(&self, address: &[u8]) -> bool {
         let Ok(address) = <[u8; 4]>::try_from(address) else {
             return false;
