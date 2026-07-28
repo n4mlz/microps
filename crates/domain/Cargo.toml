@@ -9,4 +9,5 @@ path = "src/lib.rs"
 [dependencies]
 bitflags.workspace = true
 getset.workspace = true
+slotmap.workspace = true
 thiserror.workspace = true

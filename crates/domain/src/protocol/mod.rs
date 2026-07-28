@@ -1,29 +1,15 @@
-use crate::DeviceMeta;
+use crate::{Device, NetInterface};
 
 mod ipv4;
 
-pub use ipv4::{Ipv4, Ipv4Addr, Ipv4AddrParseError, Ipv4Error, Ipv4Header, Ipv4Packet};
+pub use ipv4::{Ipv4Addr, Ipv4AddrParseError, Ipv4Error, Ipv4Header, Ipv4Interface, Ipv4Packet};
 
-/// Static contract for a protocol implementation.
-pub trait Protocol {
-    const TYPE: u16;
+pub const IPV4_TYPE: u16 = ipv4::TYPE;
 
-    fn input(meta: &DeviceMeta, data: &[u8], dst: Option<&[u8]>);
-}
-
-/// Protocol dispatcher and future extension point.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct Protocols;
-
-impl Protocols {
-    /// Dispatch a received frame to the matching protocol implementation.
-    pub fn input(kind: u16, meta: &DeviceMeta, data: &[u8], dst: Option<&[u8]>) -> bool {
-        match kind {
-            Ipv4::TYPE => {
-                Ipv4::input(meta, data, dst);
-                true
-            }
-            _ => false,
+impl Device {
+    pub fn input(&mut self, interface: &mut dyn NetInterface, frame_type: u16, data: &[u8]) {
+        if frame_type == ipv4::TYPE {
+            interface.input(data);
         }
     }
 }

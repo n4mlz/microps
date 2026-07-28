@@ -34,29 +34,22 @@ impl CountingBackend {
 }
 
 impl DeviceBackend for CountingBackend {
-    fn open(&mut self, _meta: &DeviceMeta, _state: &microps::DeviceState) {
+    fn open(&mut self) {
         self.open_calls.fetch_add(1, Ordering::SeqCst);
     }
 
-    fn close(&mut self, _meta: &DeviceMeta, _state: &microps::DeviceState) {
+    fn close(&mut self) {
         self.close_calls.fetch_add(1, Ordering::SeqCst);
     }
 
-    fn output(
-        &mut self,
-        _meta: &DeviceMeta,
-        _state: &microps::DeviceState,
-        _frame_type: u16,
-        _data: &[u8],
-        _dst: Option<&[u8]>,
-    ) {
+    fn output(&mut self, _frame_type: u16, _data: &[u8], _dst: Option<&[u8]>) {
         self.output_calls.fetch_add(1, Ordering::SeqCst);
     }
 }
 
 #[test]
-fn registry_assigns_sequential_names() {
-    let mut registry = DeviceRegistry::new();
+fn registry_returns_a_stable_device_key() {
+    let mut registry = DeviceRegistry::default();
     let (backend, _, _, _) = CountingBackend::new();
 
     let handle = registry.register(Device::new(
@@ -64,7 +57,6 @@ fn registry_assigns_sequential_names() {
         backend,
     ));
 
-    assert_eq!(handle, 0);
     let device = registry.device(handle).expect("device exists");
     assert_eq!(device.meta().name(), "net0");
 }
@@ -95,7 +87,7 @@ fn device_enforces_state_and_mtu() {
 }
 
 #[test]
-fn loopback_backend_forwards_frames_to_the_receiver() {
+fn loopback_backend_outputs_frames() {
     let mut device = Device::new(
         DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
         LoopbackDevice::new(),

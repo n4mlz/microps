@@ -1,11 +1,11 @@
 use microps::{
-    DeviceKind, DeviceMeta,
-    protocol::{Ipv4, Ipv4Addr, Ipv4Error, Ipv4Header, Ipv4Packet, Protocol, Protocols},
+    NetInterface,
+    protocol::{Ipv4Addr, Ipv4Error, Ipv4Header, Ipv4Interface, Ipv4Packet},
 };
 
 #[test]
 fn ipv4_protocol_type_matches_the_raw_value() {
-    assert_eq!(Ipv4::TYPE, 0x0800);
+    assert_eq!(microps::protocol::IPV4_TYPE, 0x0800);
 }
 
 #[test]
@@ -23,6 +23,22 @@ fn ipv4_addr_rejects_invalid_dotted_decimal() {
     assert!("192.0.2".parse::<Ipv4Addr>().is_err());
     assert!("192.0.2.256".parse::<Ipv4Addr>().is_err());
     assert!("192.0.2.1x".parse::<Ipv4Addr>().is_err());
+}
+
+#[test]
+fn ipv4_interface_calculates_broadcast_and_accepts_local_destinations() {
+    let interface = Ipv4Interface::new(
+        Ipv4Addr::from([192, 0, 2, 1]),
+        Ipv4Addr::from([255, 255, 255, 0]),
+    );
+
+    assert_eq!(interface.unicast(), Ipv4Addr::from([192, 0, 2, 1]));
+    assert_eq!(interface.netmask(), Ipv4Addr::from([255, 255, 255, 0]));
+    assert_eq!(interface.broadcast(), Ipv4Addr::from([192, 0, 2, 255]));
+    assert!(interface.accepts(&[192, 0, 2, 1]));
+    assert!(interface.accepts(&[192, 0, 2, 255]));
+    assert!(interface.accepts(&[255, 255, 255, 255]));
+    assert!(!interface.accepts(&[192, 0, 3, 1]));
 }
 
 #[test]
@@ -90,25 +106,6 @@ fn ipv4_packet_rejects_invalid_inputs() {
         Ipv4Packet::try_from(&fragmented[..]),
         Err(Ipv4Error::Fragmented)
     );
-}
-
-#[test]
-fn protocols_input_routes_ipv4_frames() {
-    let meta = DeviceMeta::new("net0", DeviceKind::Loopback, 65_535);
-
-    assert!(Protocols::input(
-        0x0800,
-        &meta,
-        &[0x45, 0x00, 0x00, 0x30],
-        None
-    ));
-}
-
-#[test]
-fn protocols_input_ignores_unknown_values() {
-    let meta = DeviceMeta::new("net0", DeviceKind::Loopback, 65_535);
-
-    assert!(!Protocols::input(0x1234, &meta, &[0x00], None));
 }
 
 fn valid_ipv4_header() -> [u8; 20] {

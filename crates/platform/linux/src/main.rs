@@ -2,7 +2,8 @@ use std::{thread, time::Duration};
 
 use linux::{LinuxPlatform, should_terminate};
 use microps::{
-    Device, DeviceKind, DeviceMeta, DeviceRegistry, LoopbackDevice, Stack, debug, error,
+    Device, DeviceKind, DeviceMeta, LoopbackDevice, Stack, debug, error,
+    protocol::{Ipv4Addr, Ipv4Interface},
 };
 
 const TEST_DATA: &[u8] = &[
@@ -14,19 +15,24 @@ const TEST_DATA: &[u8] = &[
 fn main() {
     Stack::init::<LinuxPlatform>().unwrap();
 
-    let mut registry = DeviceRegistry::new();
-    let handle = registry.register(Device::new(
+    let mut stack = Stack::new();
+    let device_key = stack.devices.register(Device::new(
         DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
         LoopbackDevice::new(),
     ));
-    registry.open_all().unwrap();
+    let interface_key = stack.interfaces.register(Ipv4Interface::new(
+        Ipv4Addr::from([127, 0, 0, 1]),
+        Ipv4Addr::from([255, 0, 0, 0]),
+    ));
+    stack
+        .interfaces
+        .attach(interface_key, device_key)
+        .expect("interface attaches to loopback device");
+    stack.open_all().unwrap();
 
     debug!("press Ctrl+C to terminate");
     while !should_terminate() {
-        let result = registry
-            .device_mut(handle)
-            .unwrap()
-            .output(0x0800, TEST_DATA, None);
+        let result = stack.output(interface_key, 0x0800, TEST_DATA, None);
         if let Err(error_value) = result {
             error!("net_device_output() failure: {error_value}");
             break;
@@ -35,6 +41,6 @@ fn main() {
     }
 
     debug!("terminate");
-    registry.close_all();
+    stack.close_all();
     Stack::shutdown::<LinuxPlatform>();
 }

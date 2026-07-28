@@ -6,10 +6,9 @@ use alloc::{boxed::Box, string::String};
 pub use backend::DeviceBackend;
 use bitflags::bitflags;
 use getset::{CopyGetters, Getters};
-pub use registry::{DeviceHandle, DeviceRegistry};
+pub use registry::{DeviceKey, DeviceRegistry};
 use thiserror::Error;
 
-/// Device type used by the stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceKind {
     Dummy,
@@ -18,7 +17,6 @@ pub enum DeviceKind {
 }
 
 bitflags! {
-    /// Device state and capability bits.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
     pub struct DeviceFlags: u16 {
         const UP = 0x0001;
@@ -29,7 +27,6 @@ bitflags! {
     }
 }
 
-/// Immutable metadata shared by all device backends.
 #[derive(Debug, Clone, PartialEq, Eq, Getters, CopyGetters)]
 pub struct DeviceMeta {
     #[getset(get = "pub")]
@@ -50,7 +47,6 @@ impl DeviceMeta {
     }
 }
 
-/// Mutable state for a registered device.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct DeviceState {
     flags: DeviceFlags,
@@ -76,7 +72,6 @@ impl DeviceState {
     }
 }
 
-/// Error returned by device lifecycle and I/O operations.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DeviceError {
     #[error("device is already open")]
@@ -87,7 +82,6 @@ pub enum DeviceError {
     PayloadTooLarge { mtu: usize, len: usize },
 }
 
-/// Concrete device value that owns its backend.
 #[derive(Debug, Getters)]
 pub struct Device {
     backend: Box<dyn DeviceBackend>,
@@ -112,7 +106,7 @@ impl Device {
         if self.state.is_up() {
             return Err(DeviceError::AlreadyOpen);
         }
-        self.backend.open(&self.meta, &self.state);
+        self.backend.open();
         self.state.up();
         Ok(())
     }
@@ -121,7 +115,7 @@ impl Device {
         if !self.state.is_up() {
             return Err(DeviceError::NotOpen);
         }
-        self.backend.close(&self.meta, &self.state);
+        self.backend.close();
         self.state.down();
         Ok(())
     }
@@ -141,8 +135,7 @@ impl Device {
                 len: data.len(),
             });
         }
-        self.backend
-            .output(&self.meta, &self.state, frame_type, data, dst);
+        self.backend.output(frame_type, data, dst);
         Ok(())
     }
 }

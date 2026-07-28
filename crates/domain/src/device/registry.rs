@@ -1,43 +1,44 @@
 use alloc::vec::Vec;
 
+use slotmap::{SlotMap, new_key_type};
+
 use crate::{Device, DeviceError};
 
-/// Handle for a device stored in a registry.
-pub type DeviceHandle = usize;
+new_key_type! {
+    /// Stable key for a device owned by a [`DeviceRegistry`].
+    pub struct DeviceKey;
+}
 
-/// Ordered device registry.
 #[derive(Debug, Default)]
 pub struct DeviceRegistry {
-    devices: Vec<Device>,
+    devices: SlotMap<DeviceKey, Device>,
 }
 
 impl DeviceRegistry {
-    pub fn new() -> Self {
-        Self {
-            devices: Vec::new(),
-        }
+    pub fn register(&mut self, device: Device) -> DeviceKey {
+        self.devices.insert(device)
     }
 
-    pub fn register(&mut self, device: Device) -> DeviceHandle {
-        let index = self.devices.len();
-        self.devices.push(device);
-        index
+    pub fn device(&self, key: DeviceKey) -> Option<&Device> {
+        self.devices.get(key)
     }
 
-    pub fn device(&self, handle: DeviceHandle) -> Option<&Device> {
-        self.devices.get(handle)
+    pub fn device_mut(&mut self, key: DeviceKey) -> Option<&mut Device> {
+        self.devices.get_mut(key)
     }
 
-    pub fn device_mut(&mut self, handle: DeviceHandle) -> Option<&mut Device> {
-        self.devices.get_mut(handle)
+    pub fn keys(&self) -> impl Iterator<Item = DeviceKey> + '_ {
+        self.devices.keys()
     }
 }
 
 impl DeviceRegistry {
     pub fn open_all(&mut self) -> Result<(), DeviceError> {
-        for index in 0..self.devices.len() {
-            if let Err(error) = self.devices[index].open() {
-                for device in self.devices[..index].iter_mut().rev() {
+        let keys: Vec<_> = self.devices.keys().collect();
+        for (index, key) in keys.iter().copied().enumerate() {
+            if let Err(error) = self.devices[key].open() {
+                for key in keys[..index].iter().rev().copied() {
+                    let device = &mut self.devices[key];
                     let _ = device.close();
                 }
                 return Err(error);
@@ -47,8 +48,9 @@ impl DeviceRegistry {
     }
 
     pub fn close_all(&mut self) {
-        for device in self.devices.iter_mut().rev() {
-            let _ = device.close();
+        let keys: Vec<_> = self.devices.keys().collect();
+        for key in keys.into_iter().rev() {
+            let _ = self.devices[key].close();
         }
     }
 }
