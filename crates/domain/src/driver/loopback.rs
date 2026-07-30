@@ -1,7 +1,6 @@
-use crate::{DeviceBackend, DeviceMeta, DeviceState, debug, debugdump, net_input};
+use crate::{DeviceBackend, debug, debugdump};
 
-/// Loopback device that feeds transmitted frames back into the stack.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default)]
 pub struct LoopbackDevice;
 
 impl LoopbackDevice {
@@ -11,20 +10,13 @@ impl LoopbackDevice {
 }
 
 impl DeviceBackend for LoopbackDevice {
-    fn output(
-        &mut self,
-        meta: &DeviceMeta,
-        _state: &DeviceState,
-        frame_type: u16,
-        data: &[u8],
-        dst: Option<&[u8]>,
-    ) {
-        debug!(
-            "dev={}, type=0x{frame_type:04x}, len={}",
-            meta.name(),
-            data.len()
-        );
+    fn output(&mut self, frame_type: u16, data: &[u8], _dst: Option<&[u8]>) {
+        debug!("type=0x{frame_type:04x}, len={}", data.len());
         debugdump(data);
-        net_input(meta, frame_type, data, dst);
+
+        // Step 5 does not reintroduce loopback frames into the stack. When
+        // deferred input is added, share only the input queue with this
+        // backend (not the Stack itself); Stack will process the queue after
+        // releasing the device borrow.
     }
 }

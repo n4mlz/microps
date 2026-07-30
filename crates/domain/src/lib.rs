@@ -4,17 +4,19 @@ extern crate alloc;
 
 mod device;
 pub mod driver;
+pub mod interface;
 mod os;
 pub mod protocol;
 mod stack;
 
 pub use device::{
-    Device, DeviceBackend, DeviceError, DeviceFlags, DeviceHandle, DeviceKind, DeviceMeta,
+    Device, DeviceBackend, DeviceError, DeviceFlags, DeviceKey, DeviceKind, DeviceMeta,
     DeviceRegistry, DeviceState,
 };
 pub use driver::{DummyDevice, LoopbackDevice};
+pub use interface::{AddressFamily, InterfaceError, InterfaceKey, InterfaceRegistry, NetInterface};
 pub use os::{
     Irq, Lock, Platform, Random, Stdout,
     stdout::{Writer, debugdump},
 };
-pub use stack::{Stack, net_input};
+pub use stack::{Stack, StackError};

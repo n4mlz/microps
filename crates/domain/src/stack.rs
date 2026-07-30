@@ -1,22 +1,97 @@
-use crate::{DeviceMeta, Platform, debug, debugdump, error, info, protocol};
+use thiserror::Error;
 
-/// Temporary ingress hook for loopback-style delivery.
-///
-/// This currently logs the frame and dispatches known EtherTypes to protocol handlers.
-pub fn net_input(meta: &DeviceMeta, frame_type: u16, data: &[u8], dst: Option<&[u8]>) {
-    debug!(
-        "dev={}, type=0x{frame_type:04x}, len={}",
-        meta.name(),
-        data.len()
-    );
-    debugdump(data);
-    let _ = protocol::Protocols::input(frame_type, meta, data, dst);
+use crate::{
+    AddressFamily, DeviceError, DeviceKey, DeviceRegistry, InterfaceError, InterfaceKey,
+    InterfaceRegistry, Platform, debug, debugdump, error, info, protocol,
+};
+
+/// Network stack state and ownership root for devices and interfaces.
+#[derive(Debug, Default)]
+pub struct Stack {
+    pub devices: DeviceRegistry,
+    pub interfaces: InterfaceRegistry,
 }
 
-/// Protocol stack lifecycle.
-pub struct Stack;
+#[derive(Debug, Error)]
+pub enum StackError {
+    #[error("device does not exist")]
+    DeviceNotFound,
+    #[error("interface does not exist")]
+    InterfaceNotFound,
+    #[error("interface is not attached to a device")]
+    InterfaceNotAttached,
+    #[error("device operation failed: {0}")]
+    Device(#[from] DeviceError),
+    #[error("interface operation failed: {0}")]
+    Interface(#[from] InterfaceError),
+}
 
 impl Stack {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn open_all(&mut self) -> Result<(), StackError> {
+        self.devices.open_all()?;
+        Ok(())
+    }
+
+    pub fn close_all(&mut self) {
+        self.devices.close_all();
+    }
+
+    pub fn input(
+        &mut self,
+        device: DeviceKey,
+        frame_type: u16,
+        data: &[u8],
+    ) -> Result<(), StackError> {
+        if self.devices.device(device).is_none() {
+            return Err(StackError::DeviceNotFound);
+        }
+        debug!(
+            "device={device:?}, type=0x{frame_type:04x}, len={}",
+            data.len()
+        );
+        debugdump(data);
+        let family = match frame_type {
+            protocol::IPV4_TYPE => AddressFamily::Ipv4,
+            _ => return Ok(()),
+        };
+        let Some(interface_key) = self.interfaces.first_for_device(device, family) else {
+            return Ok(());
+        };
+        let Some(interface) = self.interfaces.interface_mut(interface_key) else {
+            return Err(StackError::InterfaceNotFound);
+        };
+        self.devices
+            .device_mut(device)
+            .ok_or(StackError::DeviceNotFound)?
+            .input(interface, frame_type, data);
+        Ok(())
+    }
+
+    pub fn output(
+        &mut self,
+        interface: InterfaceKey,
+        frame_type: u16,
+        data: &[u8],
+        dst: Option<&[u8]>,
+    ) -> Result<(), StackError> {
+        if self.interfaces.interface(interface).is_none() {
+            return Err(StackError::InterfaceNotFound);
+        }
+        let device = self
+            .interfaces
+            .device(interface)
+            .ok_or(StackError::InterfaceNotAttached)?;
+        self.devices
+            .device_mut(device)
+            .ok_or(StackError::DeviceNotFound)?
+            .output(frame_type, data, dst)?;
+        Ok(())
+    }
+
     pub fn init<P: Platform>() -> Result<(), P::Error> {
         info!("initialize...");
         let result = P::init();
