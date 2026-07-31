@@ -1,11 +1,50 @@
 use microps::{
     NetInterface,
-    protocol::{Ipv4Addr, Ipv4Error, Ipv4Header, Ipv4Interface, Ipv4Packet},
+    protocol::{
+        EtherType, EthernetError, EthernetFrame, Ipv4Addr, Ipv4Error, Ipv4Header, Ipv4Interface,
+        Ipv4Packet, MacAddr,
+    },
 };
 
 #[test]
-fn ipv4_protocol_type_matches_the_raw_value() {
-    assert_eq!(microps::protocol::IPV4_TYPE, 0x0800);
+fn ethernet_ipv4_type_matches_the_raw_value() {
+    assert_eq!(EtherType::Ipv4 as u16, 0x0800);
+}
+
+#[test]
+fn mac_address_parses_and_formats_colon_hex() {
+    let address = "02:00:5e:10:20:30"
+        .parse::<MacAddr>()
+        .expect("valid MAC address");
+
+    assert_eq!(address.bytes(), [2, 0, 0x5e, 0x10, 0x20, 0x30]);
+    assert_eq!(address.to_string(), "02:00:5e:10:20:30");
+}
+
+#[test]
+fn ethernet_frame_round_trips_header_and_payload() {
+    let source = MacAddr::from([2, 0, 0, 0, 0, 1]);
+    let destination = MacAddr::BROADCAST;
+    let bytes = EthernetFrame::build(source, destination, EtherType::Ipv4, &[0xaa, 0xbb])
+        .expect("frame builds");
+    let frame = EthernetFrame::try_from(&bytes[..]).expect("frame parses");
+
+    assert_eq!(frame.header().source(), source);
+    assert_eq!(frame.header().destination(), destination);
+    assert_eq!(frame.header().ether_type(), EtherType::Ipv4 as u16);
+    assert_eq!(frame.payload(), &[0xaa, 0xbb]);
+}
+
+#[test]
+fn ethernet_frame_rejects_short_frames_and_large_payloads() {
+    assert_eq!(
+        EthernetFrame::try_from(&[0; 13][..]),
+        Err(EthernetError::TooShort { len: 13 })
+    );
+    assert_eq!(
+        EthernetFrame::build(MacAddr::ANY, MacAddr::ANY, EtherType::Ipv4, &[0; 1501]),
+        Err(EthernetError::PayloadTooLarge { len: 1501 })
+    );
 }
 
 #[test]

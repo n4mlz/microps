@@ -13,5 +13,3 @@ const VERSION: u8 = 4;
 
 /// Length of the IPv4 base header in bytes; options are not supported yet.
 const HEADER_LEN: usize = 20;
-
-pub const TYPE: u16 = 0x0800;

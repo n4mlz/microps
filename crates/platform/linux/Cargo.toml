@@ -11,6 +11,7 @@ name = "linux"
 path = "src/main.rs"
 
 [dependencies]
+libc = "0.2.172"
 microps.workspace = true
 rand.workspace = true
 signal-hook.workspace = true

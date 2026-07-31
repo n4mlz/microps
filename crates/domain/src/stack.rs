@@ -53,7 +53,7 @@ impl Stack {
         );
         debugdump(data);
         let family = match frame_type {
-            protocol::IPV4_TYPE => AddressFamily::Ipv4,
+            type_value if type_value == protocol::EtherType::Ipv4 as u16 => AddressFamily::Ipv4,
             _ => return Ok(()),
         };
         let Some(interface_key) = self.interfaces.first_for_device(device, family) else {
