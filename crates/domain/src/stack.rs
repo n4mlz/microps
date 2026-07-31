@@ -1,8 +1,8 @@
 use thiserror::Error;
 
 use crate::{
-    AddressFamily, DeviceError, DeviceKey, DeviceRegistry, InterfaceError, InterfaceKey,
-    InterfaceRegistry, Platform, debug, debugdump, error, info, protocol,
+    AddressFamily, DeviceError, DeviceKey, DeviceRegistry, InterfaceError, InterfaceRegistry,
+    Platform, debug, debugdump, error, info, protocol,
 };
 
 /// Network stack state and ownership root for devices and interfaces.
@@ -18,8 +18,6 @@ pub enum StackError {
     DeviceNotFound,
     #[error("interface does not exist")]
     InterfaceNotFound,
-    #[error("interface is not attached to a device")]
-    InterfaceNotAttached,
     #[error("device operation failed: {0}")]
     Device(#[from] DeviceError),
     #[error("interface operation failed: {0}")]
@@ -68,27 +66,6 @@ impl Stack {
             .device_mut(device)
             .ok_or(StackError::DeviceNotFound)?
             .input(interface, frame_type, data);
-        Ok(())
-    }
-
-    pub fn output(
-        &mut self,
-        interface: InterfaceKey,
-        frame_type: u16,
-        data: &[u8],
-        dst: Option<&[u8]>,
-    ) -> Result<(), StackError> {
-        if self.interfaces.interface(interface).is_none() {
-            return Err(StackError::InterfaceNotFound);
-        }
-        let device = self
-            .interfaces
-            .device(interface)
-            .ok_or(StackError::InterfaceNotAttached)?;
-        self.devices
-            .device_mut(device)
-            .ok_or(StackError::DeviceNotFound)?
-            .output(frame_type, data, dst)?;
         Ok(())
     }
 

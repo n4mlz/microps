@@ -12,7 +12,7 @@ fn ipv4_protocol_type_matches_the_raw_value() {
 fn ipv4_addr_parses_and_formats_dotted_decimal() {
     let addr = "192.0.2.1".parse::<Ipv4Addr>().expect("valid address");
 
-    assert_eq!(addr.octets(), [192, 0, 2, 1]);
+    assert_eq!(addr.as_bytes(), &[192, 0, 2, 1]);
     assert_eq!(addr.to_string(), "192.0.2.1");
     assert_eq!(Ipv4Addr::ANY.to_string(), "0.0.0.0");
     assert_eq!(Ipv4Addr::BROADCAST.to_string(), "255.255.255.255");
@@ -57,11 +57,11 @@ fn ipv4_packet_parses_a_valid_header() {
     assert_eq!(header.fragment_offset(), 0);
     assert_eq!(header.ttl(), 64);
     assert_eq!(header.protocol(), 17);
-    assert_eq!(header.checksum(), 0x7c6e);
+    assert_eq!(header.checksum(), Some(0x7c6e));
     assert_eq!(header.source(), Ipv4Addr::from([192, 0, 2, 1]));
     assert_eq!(header.destination(), Ipv4Addr::from([198, 51, 100, 2]));
 
-    let bytes: [u8; 20] = header.into();
+    let bytes = header.to_bytes(20);
     assert_eq!(bytes, valid_ipv4_header());
 
     let bytes = valid_ipv4_header();
@@ -80,8 +80,26 @@ fn ipv4_packet_keeps_header_and_payload_separate() {
 
     let packet = Ipv4Packet::try_from(&packet_bytes[..]).expect("valid IPv4 packet");
 
-    assert_eq!(packet.total_len(), 22);
+    assert_eq!(packet.packet_len(), 22);
     assert_eq!(packet.payload(), &[0xaa, 0xbb]);
+}
+
+#[test]
+fn ipv4_packet_builds_a_valid_header_and_payload() {
+    let packet = Ipv4Packet::build(
+        1,
+        &[0xaa, 0xbb],
+        0x1234,
+        Ipv4Addr::from([192, 0, 2, 1]),
+        Ipv4Addr::from([192, 0, 2, 2]),
+    )
+    .expect("packet builds");
+
+    let parsed = Ipv4Packet::try_from(&packet[..]).expect("built packet parses");
+    assert_eq!(parsed.header().id(), 0x1234);
+    assert_eq!(parsed.header().ttl(), 255);
+    assert_eq!(parsed.header().protocol(), 1);
+    assert_eq!(parsed.payload(), &[0xaa, 0xbb]);
 }
 
 #[test]

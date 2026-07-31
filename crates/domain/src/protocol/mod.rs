@@ -2,7 +2,9 @@ use crate::{Device, NetInterface};
 
 mod ipv4;
 
-pub use ipv4::{Ipv4Addr, Ipv4AddrParseError, Ipv4Error, Ipv4Header, Ipv4Interface, Ipv4Packet};
+pub use ipv4::{
+    Ipv4Addr, Ipv4AddrParseError, Ipv4Error, Ipv4Header, Ipv4Interface, Ipv4OutputError, Ipv4Packet,
+};
 
 pub const IPV4_TYPE: u16 = ipv4::TYPE;
 

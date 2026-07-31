@@ -30,9 +30,15 @@ fn main() {
         .expect("interface attaches to loopback device");
     stack.open_all().unwrap();
 
+    let source = Ipv4Addr::from([127, 0, 0, 1]);
+
     debug!("press Ctrl+C to terminate");
     while !should_terminate() {
-        let result = stack.output(interface_key, 0x0800, TEST_DATA, None);
+        let (interfaces, devices) = (&mut stack.interfaces, &mut stack.devices);
+        let result = interfaces
+            .interface_as::<Ipv4Interface>(interface_key)
+            .unwrap()
+            .output::<LinuxPlatform>(devices, 1, &TEST_DATA[20..], source, source);
         if let Err(error_value) = result {
             error!("net_device_output() failure: {error_value}");
             break;

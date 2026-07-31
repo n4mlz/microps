@@ -14,7 +14,10 @@ pub use device::{
     DeviceRegistry, DeviceState,
 };
 pub use driver::{DummyDevice, LoopbackDevice};
-pub use interface::{AddressFamily, InterfaceError, InterfaceKey, InterfaceRegistry, NetInterface};
+pub use interface::{
+    AddressFamily, InterfaceError, InterfaceKey, InterfaceOutputError, InterfaceRegistry,
+    NetInterface,
+};
 pub use os::{
     Irq, Lock, Platform, Random, Stdout,
     stdout::{Writer, debugdump},
