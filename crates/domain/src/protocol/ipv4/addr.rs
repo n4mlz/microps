@@ -14,8 +14,8 @@ impl Ipv4Addr {
         Self { octets }
     }
 
-    pub const fn octets(self) -> [u8; 4] {
-        self.octets
+    pub const fn as_bytes(&self) -> &[u8; 4] {
+        &self.octets
     }
 }
 

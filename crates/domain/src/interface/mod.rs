@@ -1,9 +1,10 @@
 use alloc::boxed::Box;
+use core::any::Any;
 
 use slotmap::{SlotMap, new_key_type};
 use thiserror::Error;
 
-use crate::DeviceKey;
+use crate::{DeviceError, DeviceKey, DeviceRegistry};
 
 new_key_type! {
     /// Stable key for an interface owned by an [`InterfaceRegistry`].
@@ -21,6 +22,8 @@ pub enum AddressFamily {
 }
 
 pub trait NetInterface: core::fmt::Debug {
+    fn as_any(&self) -> &dyn Any;
+
     fn family(&self) -> AddressFamily;
 
     fn input(&mut self, data: &[u8]);
@@ -34,6 +37,31 @@ pub trait NetInterface: core::fmt::Debug {
     fn detach(&mut self) -> Option<DeviceKey>;
 
     fn accepts(&self, address: &[u8]) -> bool;
+
+    fn output_raw(
+        &self,
+        devices: &mut DeviceRegistry,
+        frame_type: u16,
+        data: &[u8],
+        destination: Option<&[u8]>,
+    ) -> Result<(), InterfaceOutputError> {
+        let device = self.device().ok_or(InterfaceOutputError::NotAttached)?;
+        devices
+            .device_mut(device)
+            .ok_or(InterfaceOutputError::DeviceNotFound)?
+            .output(frame_type, data, destination)
+            .map_err(InterfaceOutputError::Device)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum InterfaceOutputError {
+    #[error("interface is not attached to a device")]
+    NotAttached,
+    #[error("device does not exist")]
+    DeviceNotFound,
+    #[error("device operation failed: {0}")]
+    Device(DeviceError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -62,6 +90,10 @@ impl InterfaceRegistry {
         self.interfaces
             .get_mut(key)
             .map(|interface| &mut **interface as &mut dyn NetInterface)
+    }
+
+    pub fn interface_as<T: Any>(&self, key: InterfaceKey) -> Option<&T> {
+        self.interface(key)?.as_any().downcast_ref()
     }
 
     pub fn attach(
@@ -93,8 +125,8 @@ impl InterfaceRegistry {
             .map(|(key, _)| key)
     }
 
-    /// Reserved for IP output source-interface selection.
-    pub fn _select_by_address(&self, address: &[u8]) -> Option<InterfaceKey> {
+    /// Selects the interface that owns an address.
+    pub fn select_by_address(&self, address: &[u8]) -> Option<InterfaceKey> {
         self.interfaces
             .iter()
             .find(|(_, interface)| interface.has_address(address))

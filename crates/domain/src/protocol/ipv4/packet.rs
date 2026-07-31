@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 use getset::CopyGetters;
 
 use super::{HEADER_LEN, Ipv4Error, Ipv4Header};
@@ -12,8 +14,29 @@ pub struct Ipv4Packet<'a> {
 }
 
 impl Ipv4Packet<'_> {
-    pub fn total_len(&self) -> usize {
-        self.header.total_len() as usize
+    pub fn packet_len(&self) -> usize {
+        HEADER_LEN + self.payload.len()
+    }
+
+    pub fn build(
+        protocol: u8,
+        payload: &[u8],
+        id: u16,
+        source: super::Ipv4Addr,
+        destination: super::Ipv4Addr,
+    ) -> Result<Vec<u8>, Ipv4Error> {
+        let total_len = HEADER_LEN
+            .checked_add(payload.len())
+            .ok_or(Ipv4Error::PayloadTooLarge { len: payload.len() })?;
+        if total_len > usize::from(u16::MAX) {
+            return Err(Ipv4Error::PayloadTooLarge { len: payload.len() });
+        }
+
+        let header = Ipv4Header::new(protocol, id, source, destination);
+        let mut packet = Vec::with_capacity(total_len);
+        packet.extend_from_slice(&header.to_bytes(total_len as u16));
+        packet.extend_from_slice(payload);
+        Ok(packet)
     }
 }
 
