@@ -58,7 +58,12 @@ impl Ipv4Interface {
 
         let id = R::random16().map_err(Ipv4OutputError::Random)?;
         let packet = Ipv4Packet::build(protocol, data, id, source, destination)?;
-        self.output_raw(devices, super::TYPE, &packet, None)?;
+        self.output_raw(
+            devices,
+            crate::protocol::EtherType::Ipv4 as u16,
+            &packet,
+            None,
+        )?;
         Ok(packet.len())
     }
 }

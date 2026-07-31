@@ -1,16 +1,14 @@
 use crate::{Device, NetInterface};
 
+mod ethernet;
 mod ipv4;
 
-pub use ipv4::{
-    Ipv4Addr, Ipv4AddrParseError, Ipv4Error, Ipv4Header, Ipv4Interface, Ipv4OutputError, Ipv4Packet,
-};
-
-pub const IPV4_TYPE: u16 = ipv4::TYPE;
+pub use ethernet::*;
+pub use ipv4::*;
 
 impl Device {
     pub fn input(&mut self, interface: &mut dyn NetInterface, frame_type: u16, data: &[u8]) {
-        if frame_type == ipv4::TYPE {
+        if frame_type == EtherType::Ipv4 as u16 {
             interface.input(data);
         }
     }

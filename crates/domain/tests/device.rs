@@ -5,6 +5,7 @@ use std::sync::{
 
 use microps::{
     Device, DeviceBackend, DeviceError, DeviceKind, DeviceMeta, DeviceRegistry, LoopbackDevice,
+    protocol::EtherType,
 };
 
 #[derive(Debug, Clone)]
@@ -67,17 +68,17 @@ fn device_enforces_state_and_mtu() {
     let mut device = Device::new(DeviceMeta::new("net0", DeviceKind::Dummy, 4), backend);
 
     assert!(matches!(
-        device.output(0x0800, &[1], None),
+        device.output(EtherType::Ipv4 as u16, &[1], None),
         Err(DeviceError::NotOpen)
     ));
 
     device.open().expect("device opens");
     assert!(matches!(
-        device.output(0x0800, &[1, 2, 3, 4, 5], None),
+        device.output(EtherType::Ipv4 as u16, &[1, 2, 3, 4, 5], None),
         Err(DeviceError::PayloadTooLarge { mtu: 4, len: 5 })
     ));
     device
-        .output(0x0800, &[1, 2, 3, 4], None)
+        .output(EtherType::Ipv4 as u16, &[1, 2, 3, 4], None)
         .expect("payload fits");
     device.close().expect("device closes");
 
@@ -95,6 +96,6 @@ fn loopback_backend_outputs_frames() {
 
     device.open().expect("device opens");
     device
-        .output(0x0800, &[0x45, 0x00, 0x00, 0x30], None)
+        .output(EtherType::Ipv4 as u16, &[0x45, 0x00, 0x00, 0x30], None)
         .expect("output succeeds");
 }
