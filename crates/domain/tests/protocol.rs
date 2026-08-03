@@ -1,8 +1,8 @@
 use microps::{
     NetInterface,
     protocol::{
-        EtherType, EthernetError, EthernetFrame, IcmpPacket, Ipv4Addr, Ipv4Error, Ipv4Header,
-        Ipv4Interface, Ipv4Packet, Ipv4Protocol, MacAddr,
+        EtherType, EthernetError, EthernetFrame, IcmpError, IcmpHeader, IcmpPacket, IcmpType,
+        Ipv4Addr, Ipv4Error, Ipv4Header, Ipv4Interface, Ipv4Packet, Ipv4Protocol, MacAddr,
     },
 };
 
@@ -150,6 +150,13 @@ fn ipv4_protocol_numbers_are_typed() {
 }
 
 #[test]
+fn icmp_type_numbers_are_typed() {
+    assert_eq!(IcmpType::Echo as u8, 8);
+    assert_eq!(IcmpType::try_from(8), Ok(IcmpType::Echo));
+    assert!(IcmpType::try_from(99).is_err());
+}
+
+#[test]
 fn icmp_packet_preserves_ipv4_addresses_and_payload() {
     let header = Ipv4Header::new(
         Ipv4Protocol::Icmp as u8,
@@ -159,18 +166,28 @@ fn icmp_packet_preserves_ipv4_addresses_and_payload() {
     );
     let ipv4_packet = Ipv4Packet::build(
         Ipv4Protocol::Icmp as u8,
-        &[0xaa, 0xbb],
+        &[0x08, 0x00, 0x4d, 0x42, 0x00, 0x01, 0x00, 0x01, 0xaa, 0xbb],
         0,
         header.source(),
         header.destination(),
     )
     .expect("packet builds");
     let packet =
-        IcmpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4_packet[..]).expect("packet parses"));
+        IcmpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4_packet[..]).expect("packet parses"))
+            .expect("ICMP packet parses");
 
     assert_eq!(packet.source(), Ipv4Addr::from([192, 0, 2, 1]));
     assert_eq!(packet.destination(), Ipv4Addr::from([192, 0, 2, 2]));
     assert_eq!(packet.payload(), &[0xaa, 0xbb]);
+}
+
+#[test]
+fn icmp_header_rejects_short_and_corrupt_messages() {
+    assert!(IcmpHeader::try_from(&[0; 7][..]).is_err());
+    assert_eq!(
+        IcmpHeader::try_from(&[0x08, 0x00, 0, 0, 0, 1, 0, 1][..]),
+        Err(IcmpError::InvalidChecksum)
+    );
 }
 
 #[test]
