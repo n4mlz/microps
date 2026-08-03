@@ -78,17 +78,19 @@ impl CountingBackend {
 }
 
 impl DeviceBackend<TestPlatform> for CountingBackend {
-    fn open(&mut self) {
+    fn open(&mut self) -> Result<(), DeviceError> {
         self.open_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(())
     }
-    fn close(&mut self) {
+    fn close(&mut self) -> Result<(), DeviceError> {
         self.close_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(())
     }
     fn output(&mut self, _: u16, _: &[u8], _: Option<&[u8]>) -> Result<(), DeviceError> {
         self.output_calls.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
-    fn input(&mut self, _: u16, _: &[u8]) -> Result<(), DeviceError> {
+    fn input(&mut self) -> Result<(), DeviceError> {
         Ok(())
     }
 }

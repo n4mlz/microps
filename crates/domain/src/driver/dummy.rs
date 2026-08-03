@@ -13,8 +13,4 @@ impl<P: Platform> DeviceBackend<P> for DummyDevice {
         debugdump(data);
         Ok(())
     }
-
-    fn input(&mut self, _frame_type: u16, _data: &[u8]) -> Result<(), DeviceError> {
-        Ok(())
-    }
 }

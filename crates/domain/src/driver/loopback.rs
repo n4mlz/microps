@@ -15,6 +15,13 @@ impl<P: Platform> LoopbackDevice<P> {
             device_key: None,
         }
     }
+
+    fn input(&mut self, frame_type: u16, data: &[u8]) -> Result<(), DeviceError> {
+        let device = self.device_key.ok_or(DeviceError::MissingDeviceKey)?;
+        self.input_queue
+            .push(ReceivedFrame::new(device, frame_type, data));
+        P::raise(IrqLine::SoftInput).map_err(|_| DeviceError::InputIrq)
+    }
 }
 
 impl<P: Platform> DeviceBackend<P> for LoopbackDevice<P> {
@@ -30,15 +37,7 @@ impl<P: Platform> DeviceBackend<P> for LoopbackDevice<P> {
     ) -> Result<(), DeviceError> {
         debug!("type=0x{frame_type:04x}, len={}", data.len());
         debugdump(data);
-        self.device_key.ok_or(DeviceError::MissingDeviceKey)?;
         self.input(frame_type, data)?;
         Ok(())
-    }
-
-    fn input(&mut self, frame_type: u16, data: &[u8]) -> Result<(), DeviceError> {
-        let device = self.device_key.ok_or(DeviceError::MissingDeviceKey)?;
-        self.input_queue
-            .push(ReceivedFrame::new(device, frame_type, data));
-        P::raise(IrqLine::SoftInput).map_err(|_| DeviceError::InputIrq)
     }
 }

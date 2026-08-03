@@ -3,6 +3,7 @@ use alloc::boxed::Box;
 /// Logical interrupt lines used by the network stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IrqLine {
+    DeviceInput,
     SoftInput,
 }
 

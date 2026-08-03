@@ -21,14 +21,15 @@ fn installed() -> &'static Mutex<HashSet<usize>> {
     INSTALLED.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-fn signal(line: IrqLine) -> usize {
+pub fn signal_number(line: IrqLine) -> libc::c_int {
     match line {
-        IrqLine::SoftInput => libc::SIGUSR1 as usize,
+        IrqLine::DeviceInput => libc::SIGRTMIN() + 1,
+        IrqLine::SoftInput => libc::SIGUSR1,
     }
 }
 
 fn install_signal(line: IrqLine) {
-    let irq = signal(line);
+    let irq = signal_number(line) as usize;
     let mut installed = installed().lock().expect("irq install mutex poisoned");
     if !installed.insert(irq) {
         return;
@@ -50,7 +51,7 @@ impl Irq for LinuxPlatform {
     type Error = core::convert::Infallible;
 
     fn register(line: IrqLine, handler: Handler) -> Result<(), Self::Error> {
-        let irq = signal(line);
+        let irq = signal_number(line) as usize;
         handlers()
             .lock()
             .expect("irq registry mutex poisoned")
@@ -60,7 +61,7 @@ impl Irq for LinuxPlatform {
     }
 
     fn raise(line: IrqLine) -> Result<(), Self::Error> {
-        let irq = signal(line);
+        let irq = signal_number(line) as usize;
         signal_hook::low_level::raise(irq as i32).expect("failed to raise signal");
         Ok(())
     }

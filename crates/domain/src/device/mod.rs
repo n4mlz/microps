@@ -86,6 +86,12 @@ pub enum DeviceError {
     MissingDeviceKey,
     #[error("failed to raise input IRQ")]
     InputIrq,
+    #[error("device backend failure: {message}")]
+    Backend { message: String },
+    #[error("Ethernet destination address is required")]
+    MissingDestination,
+    #[error("invalid Ethernet destination address length: {len} bytes")]
+    InvalidDestination { len: usize },
     #[error("payload is too large: {len} bytes exceeds MTU {mtu}")]
     PayloadTooLarge { mtu: usize, len: usize },
 }
@@ -116,7 +122,7 @@ impl<P: Platform> Device<P> {
         if self.state.is_up() {
             return Err(DeviceError::AlreadyOpen);
         }
-        self.backend.open();
+        self.backend.open()?;
         self.state.up();
         Ok(())
     }
@@ -130,7 +136,7 @@ impl<P: Platform> Device<P> {
         if !self.state.is_up() {
             return Err(DeviceError::NotOpen);
         }
-        self.backend.close();
+        self.backend.close()?;
         self.state.down();
         Ok(())
     }
@@ -151,5 +157,12 @@ impl<P: Platform> Device<P> {
             });
         }
         self.backend.output(frame_type, data, dst)
+    }
+
+    pub fn input(&mut self) -> Result<(), DeviceError> {
+        if !self.state.is_up() {
+            return Err(DeviceError::NotOpen);
+        }
+        self.backend.input()
     }
 }

@@ -36,6 +36,7 @@ impl IfReq {
     }
 }
 
+#[derive(Debug)]
 pub struct Tap {
     file: File,
 }
@@ -62,5 +63,31 @@ impl Tap {
 
     pub fn write_frame(&mut self, frame: &[u8]) -> io::Result<usize> {
         self.file.write(frame)
+    }
+
+    pub fn configure_async(&self, signal: libc::c_int) -> io::Result<()> {
+        const F_SETSIG: libc::c_int = 10;
+
+        if unsafe { libc::fcntl(self.file.as_raw_fd(), libc::F_SETOWN, libc::getpid()) } == -1 {
+            return Err(io::Error::last_os_error());
+        }
+        let flags = unsafe { libc::fcntl(self.file.as_raw_fd(), libc::F_GETFL) };
+        if flags == -1 {
+            return Err(io::Error::last_os_error());
+        }
+        if unsafe {
+            libc::fcntl(
+                self.file.as_raw_fd(),
+                libc::F_SETFL,
+                flags | libc::O_ASYNC | libc::O_NONBLOCK,
+            )
+        } == -1
+        {
+            return Err(io::Error::last_os_error());
+        }
+        if unsafe { libc::fcntl(self.file.as_raw_fd(), F_SETSIG, signal) } == -1 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(())
     }
 }
