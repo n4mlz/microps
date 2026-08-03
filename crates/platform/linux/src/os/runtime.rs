@@ -26,6 +26,7 @@ pub fn should_terminate() -> bool {
 
 impl Platform for LinuxPlatform {
     type Error = Infallible;
+    type Mutex<T: Send> = crate::os::LinuxMutex<T>;
 
     fn init() -> Result<(), Self::Error> {
         <LinuxPlatform as Stdout>::init();

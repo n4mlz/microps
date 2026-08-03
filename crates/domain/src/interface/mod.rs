@@ -4,7 +4,7 @@ use core::any::Any;
 use slotmap::{SlotMap, new_key_type};
 use thiserror::Error;
 
-use crate::{DeviceError, DeviceKey, DeviceRegistry};
+use crate::{DeviceError, DeviceKey, DeviceRegistry, Platform};
 
 new_key_type! {
     /// Stable key for an interface owned by an [`InterfaceRegistry`].
@@ -38,13 +38,16 @@ pub trait NetInterface: core::fmt::Debug {
 
     fn accepts(&self, address: &[u8]) -> bool;
 
-    fn output_raw(
+    fn output_raw<P: Platform>(
         &self,
-        devices: &mut DeviceRegistry,
+        devices: &mut DeviceRegistry<P>,
         frame_type: u16,
         data: &[u8],
         destination: Option<&[u8]>,
-    ) -> Result<(), InterfaceOutputError> {
+    ) -> Result<(), InterfaceOutputError>
+    where
+        Self: Sized,
+    {
         let device = self.device().ok_or(InterfaceOutputError::NotAttached)?;
         devices
             .device_mut(device)

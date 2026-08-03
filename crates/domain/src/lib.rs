@@ -11,7 +11,7 @@ mod stack;
 
 pub use device::{
     Device, DeviceBackend, DeviceError, DeviceFlags, DeviceKey, DeviceKind, DeviceMeta,
-    DeviceRegistry, DeviceState,
+    DeviceRegistry, DeviceState, InputQueue, InputQueueInner, ReceivedFrame,
 };
 pub use driver::{DummyDevice, LoopbackDevice};
 pub use interface::{

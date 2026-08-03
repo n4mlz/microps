@@ -1,19 +1,31 @@
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use microps::Lock;
 
-use crate::LinuxPlatform;
+#[derive(Debug, Default)]
+pub struct LinuxMutex<T>(Mutex<T>);
 
-static LOCK: Mutex<()> = Mutex::new(());
+impl<T> LinuxMutex<T> {
+    pub fn new(value: T) -> Self {
+        Self(Mutex::new(value))
+    }
+}
 
-impl Lock for LinuxPlatform {
+impl<T> Lock<T> for LinuxMutex<T> {
     type Error = core::convert::Infallible;
-    type Guard = std::sync::MutexGuard<'static, ()>;
+    type Guard<'a>
+        = MutexGuard<'a, T>
+    where
+        T: 'a;
 
-    fn acquire() -> Result<Self::Guard, Self::Error> {
-        Ok(match LOCK.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        })
+    fn new(value: T) -> Self {
+        Self::new(value)
+    }
+
+    fn acquire(&self) -> Result<Self::Guard<'_>, Self::Error> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()))
     }
 }

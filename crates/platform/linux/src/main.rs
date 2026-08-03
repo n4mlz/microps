@@ -2,7 +2,7 @@ use std::{thread, time::Duration};
 
 use linux::{LinuxPlatform, should_terminate};
 use microps::{
-    Device, DeviceKind, DeviceMeta, LoopbackDevice, Stack, debug, error,
+    DeviceKind, DeviceMeta, LoopbackDevice, Stack, debug, error,
     protocol::{Ipv4Addr, Ipv4Interface},
 };
 
@@ -13,13 +13,13 @@ const TEST_DATA: &[u8] = &[
 ];
 
 fn main() {
-    Stack::init::<LinuxPlatform>().unwrap();
+    Stack::<LinuxPlatform>::init().unwrap();
 
-    let mut stack = Stack::new();
-    let device_key = stack.devices.register(Device::new(
+    let mut stack = Stack::<LinuxPlatform>::new();
+    let device_key = stack.register_device(
         DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
-        LoopbackDevice::new(),
-    ));
+        LoopbackDevice::new(stack.input_queue().clone()),
+    );
     let interface_key = stack.interfaces.register(Ipv4Interface::new(
         Ipv4Addr::from([127, 0, 0, 1]),
         Ipv4Addr::from([255, 0, 0, 0]),
@@ -38,9 +38,13 @@ fn main() {
         let result = interfaces
             .interface_as::<Ipv4Interface>(interface_key)
             .unwrap()
-            .output::<LinuxPlatform>(devices, 1, &TEST_DATA[20..], source, source);
+            .output::<LinuxPlatform, LinuxPlatform>(devices, 1, &TEST_DATA[20..], source, source);
         if let Err(error_value) = result {
             error!("net_device_output() failure: {error_value}");
+            break;
+        }
+        if let Err(error_value) = stack.process_input() {
+            error!("input processing failure: {error_value}");
             break;
         }
         thread::sleep(Duration::from_secs(1));
@@ -48,5 +52,5 @@ fn main() {
 
     debug!("terminate");
     stack.close_all();
-    Stack::shutdown::<LinuxPlatform>();
+    Stack::<LinuxPlatform>::shutdown();
 }
