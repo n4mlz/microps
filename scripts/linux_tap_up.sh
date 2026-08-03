@@ -11,7 +11,7 @@ fi
 
 tap_user="${SUDO_USER:-$(id -un)}"
 
-if ! ip tuntap show dev "$tap_name" >/dev/null 2>&1; then
+if ! ip link show dev "$tap_name" >/dev/null 2>&1; then
     ip tuntap add dev "$tap_name" mode tap user "$tap_user"
 fi
 

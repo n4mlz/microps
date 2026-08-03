@@ -54,7 +54,7 @@ impl<P: Platform> EtherTapDevice<P> {
         debugdump(frame.payload());
         self.input_queue
             .push(ReceivedFrame::new(device, frame_type, frame.payload()));
-        P::raise(IrqLine::SoftInput).map_err(|_| DeviceError::InputIrq)
+        Ok(())
     }
 }
 

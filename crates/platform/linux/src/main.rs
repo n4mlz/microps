@@ -39,14 +39,23 @@ fn main() {
     <LinuxPlatform as Irq>::register(
         ether_tap_irq(),
         Box::new(move |_| {
-            let mut stack = receive_stack.lock().expect("stack mutex poisoned");
-            let result = stack
-                .devices
-                .device_mut(device_key)
-                .ok_or(microps::StackError::DeviceNotFound)
-                .and_then(|device| device.input().map_err(microps::StackError::Device));
+            // The device input handler locks the stack. Raise SoftInput only
+            // after releasing that lock, otherwise its handler deadlocks on
+            // the same mutex.
+            let result = {
+                let mut stack = receive_stack.lock().expect("stack mutex poisoned");
+                stack
+                    .devices
+                    .device_mut(device_key)
+                    .ok_or(microps::StackError::DeviceNotFound)
+                    .and_then(|device| device.input().map_err(microps::StackError::Device))
+            };
             if let Err(error_value) = result {
                 error!("device input failure: {error_value}");
+                return;
+            }
+            if let Err(error_value) = <LinuxPlatform as Irq>::raise(IrqLine::SoftInput) {
+                error!("soft input interrupt failure: {error_value:?}");
             }
         }),
     )

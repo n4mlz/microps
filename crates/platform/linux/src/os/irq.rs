@@ -1,7 +1,7 @@
 use std::{
     boxed::Box,
     collections::{HashMap, HashSet},
-    sync::{Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use microps::{Irq, IrqLine};
@@ -9,11 +9,12 @@ use microps::{Irq, IrqLine};
 use crate::LinuxPlatform;
 
 type Handler = Box<dyn Fn(IrqLine) + Send + Sync>;
+type RegisteredHandler = Arc<dyn Fn(IrqLine) + Send + Sync>;
 
-static HANDLERS: OnceLock<Mutex<HashMap<usize, Handler>>> = OnceLock::new();
+static HANDLERS: OnceLock<Mutex<HashMap<usize, RegisteredHandler>>> = OnceLock::new();
 static INSTALLED: OnceLock<Mutex<HashSet<usize>>> = OnceLock::new();
 
-fn handlers() -> &'static Mutex<HashMap<usize, Handler>> {
+fn handlers() -> &'static Mutex<HashMap<usize, RegisteredHandler>> {
     HANDLERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -36,11 +37,12 @@ fn install_signal(line: IrqLine) {
     }
     unsafe {
         let _ = signal_hook::low_level::register(irq as i32, move || {
-            if let Some(handler) = handlers()
+            let handler = handlers()
                 .lock()
                 .expect("irq registry mutex poisoned")
                 .get(&irq)
-            {
+                .cloned();
+            if let Some(handler) = handler {
                 handler(line);
             }
         });
@@ -55,7 +57,7 @@ impl Irq for LinuxPlatform {
         handlers()
             .lock()
             .expect("irq registry mutex poisoned")
-            .insert(irq, handler);
+            .insert(irq, Arc::from(handler));
         install_signal(line);
         Ok(())
     }
