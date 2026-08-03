@@ -153,4 +153,19 @@ pub enum EthernetError {
     TooShort { len: usize },
     #[error("Ethernet payload is too large: {len} bytes")]
     PayloadTooLarge { len: usize },
+    #[error("unsupported EtherType: 0x{value:04x}")]
+    UnsupportedType { value: u16 },
+}
+
+impl TryFrom<u16> for EtherType {
+    type Error = EthernetError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            value if value == Self::Ipv4 as u16 => Ok(Self::Ipv4),
+            value if value == Self::Arp as u16 => Ok(Self::Arp),
+            value if value == Self::Ipv6 as u16 => Ok(Self::Ipv6),
+            value => Err(EthernetError::UnsupportedType { value }),
+        }
+    }
 }

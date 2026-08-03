@@ -33,3 +33,25 @@
   - Cyrius (自作 OS, 予定):
     - lib クレートとしてこのリポジトリの domain (microps) を利用。platform/ は利用しない
     - 例えば Cyrius の Cargo.toml から packages に microps = { git=... } のように書けると良い。microps という package 名は `domain` を指すのでこちらが import される
+
+## Linux TAP の実行
+
+TAP device の作成と Linux host 側の address/link 設定は、Rust の実行とは分離して行う。
+初回または TAP を削除した後は、次のように準備する。
+
+```sh
+./scripts/linux_tap_up.sh
+cargo run -p linux
+```
+
+`linux_tap_up.sh` は TAP device を実行ユーザー所有で作成するため、sudo はこの準備時だけ使用する。
+Rust 側はユーザー権限で既存の TAP device に接続する。
+
+終了後に TAP device も削除する場合は、次を実行する。
+
+```sh
+./scripts/linux_tap_down.sh
+```
+
+`linux_tap_up.sh` は Linux host に `10.0.0.1/24` を設定する。microps 側の `10.0.0.2/24` は protocol stack が設定する。これらの値と TAP name は `main.rs` と `linux_tap_up.sh` の間で対応している。
+ARP はまだ実装していないため、ARP request の受信確認だけなら static neighbor の設定は不要である。

@@ -2,9 +2,13 @@ use super::{DeviceError, DeviceKey};
 use crate::Platform;
 
 pub trait DeviceBackend<P: Platform>: Send {
-    fn open(&mut self) {}
+    fn open(&mut self) -> Result<(), DeviceError> {
+        Ok(())
+    }
 
-    fn close(&mut self) {}
+    fn close(&mut self) -> Result<(), DeviceError> {
+        Ok(())
+    }
 
     fn set_device_key(&mut self, _device: DeviceKey) {}
 
@@ -15,6 +19,8 @@ pub trait DeviceBackend<P: Platform>: Send {
         dst: Option<&[u8]>,
     ) -> Result<(), DeviceError>;
 
-    /// Queues one received frame and raises the logical soft-input IRQ.
-    fn input(&mut self, frame_type: u16, data: &[u8]) -> Result<(), DeviceError>;
+    /// Reads available frames from the device and queues them.
+    fn input(&mut self) -> Result<(), DeviceError> {
+        Ok(())
+    }
 }
