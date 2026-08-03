@@ -65,6 +65,8 @@ fn main() {
     <LinuxPlatform as Irq>::register(
         IrqLine::SoftInput,
         Box::new(move |_| {
+            // This handler owns the Stack lock while draining the queue. Any
+            // code that raises SoftInput must do so after releasing this lock.
             if let Err(error_value) = input_stack
                 .lock()
                 .expect("stack mutex poisoned")

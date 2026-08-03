@@ -15,6 +15,10 @@ pub trait Irq {
         line: IrqLine,
         handler: Box<dyn Fn(IrqLine) + Send + Sync>,
     ) -> Result<(), Self::Error>;
+    /// Raises an interrupt line.
+    ///
+    /// In particular, `SoftInput` must only be raised after releasing the
+    /// stack lock; its handler takes that same lock to drain the input queue.
     fn raise(line: IrqLine) -> Result<(), Self::Error>;
 
     fn init() -> Result<(), Self::Error> {

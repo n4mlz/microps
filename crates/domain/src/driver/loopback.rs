@@ -20,6 +20,9 @@ impl<P: Platform> LoopbackDevice<P> {
         let device = self.device_key.ok_or(DeviceError::MissingDeviceKey)?;
         self.input_queue
             .push(ReceivedFrame::new(device, frame_type, data));
+        // SoftInput handlers process the queue through Stack and therefore
+        // lock Stack. This method must only be called when that Stack lock is
+        // not held by the caller.
         P::raise(IrqLine::SoftInput).map_err(|_| DeviceError::InputIrq)
     }
 }
