@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use microps::{
-    Device, DeviceBackend, DeviceError, DeviceKind, DeviceMeta, DeviceRegistry, InputQueue, Lock,
+    Device, DeviceBackend, DeviceError, DeviceKind, DeviceMeta, DeviceRegistry, Irq, IrqLine, Lock,
     LoopbackDevice, Platform, Stack, protocol::EtherType,
 };
 
@@ -40,8 +40,16 @@ impl Platform for TestPlatform {
     fn shutdown() {}
 }
 
-fn queue() -> InputQueue<TestPlatform> {
-    Arc::default()
+impl Irq for TestPlatform {
+    type Error = core::convert::Infallible;
+
+    fn register(_: IrqLine, _: fn(IrqLine, usize), _: usize) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn raise(_: IrqLine) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -80,8 +88,8 @@ impl DeviceBackend<TestPlatform> for CountingBackend {
         self.output_calls.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
-    fn input(&mut self) -> Result<Option<(u16, Vec<u8>)>, DeviceError> {
-        Ok(None)
+    fn input(&mut self, _: u16, _: &[u8]) -> Result<(), DeviceError> {
+        Ok(())
     }
 }
 
@@ -92,7 +100,6 @@ fn registry_returns_a_stable_device_key() {
     let handle = registry.register(Device::new(
         DeviceMeta::new("net0", DeviceKind::Dummy, 128),
         backend,
-        queue(),
     ));
     assert_eq!(registry.device(handle).unwrap().meta().name(), "net0");
 }
@@ -100,11 +107,7 @@ fn registry_returns_a_stable_device_key() {
 #[test]
 fn device_enforces_state_and_mtu() {
     let (backend, open_calls, close_calls, output_calls) = CountingBackend::new();
-    let mut device = Device::new(
-        DeviceMeta::new("net0", DeviceKind::Dummy, 4),
-        backend,
-        queue(),
-    );
+    let mut device = Device::new(DeviceMeta::new("net0", DeviceKind::Dummy, 4), backend);
     assert!(matches!(
         device.output(EtherType::Ipv4 as u16, &[1], None),
         Err(DeviceError::NotOpen)
@@ -135,7 +138,6 @@ fn loopback_transfers_output_to_the_input_queue() {
     device_ref
         .output(EtherType::Ipv4 as u16, &[1, 2, 3], None)
         .unwrap();
-    device_ref.input().unwrap();
     stack.process_input().unwrap();
     stack.close_all();
 }

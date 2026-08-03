@@ -1,5 +1,3 @@
-use alloc::vec::Vec;
-
 use crate::{DeviceBackend, DeviceError, Platform, debugdump};
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -16,7 +14,7 @@ impl<P: Platform> DeviceBackend<P> for DummyDevice {
         Ok(())
     }
 
-    fn input(&mut self) -> Result<Option<(u16, Vec<u8>)>, DeviceError> {
-        Ok(None)
+    fn input(&mut self, _frame_type: u16, _data: &[u8]) -> Result<(), DeviceError> {
+        Ok(())
     }
 }

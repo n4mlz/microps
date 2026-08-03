@@ -1,6 +1,6 @@
 use linux::LinuxPlatform;
 use microps::{
-    DeviceKind, DeviceMeta, LoopbackDevice, Stack,
+    DeviceKind, DeviceMeta, Irq, IrqLine, LoopbackDevice, Stack,
     protocol::{Ipv4Addr, Ipv4Interface},
 };
 
@@ -13,6 +13,8 @@ const TEST_DATA: &[u8] = &[
 #[test]
 fn loopback_device_runs_through_the_stack() {
     Stack::<LinuxPlatform>::init().expect("stack initializes");
+    <LinuxPlatform as Irq>::register(IrqLine::SoftInput, |_line, _arg| {}, 0)
+        .expect("soft IRQ registers");
 
     let mut stack = Stack::<LinuxPlatform>::new();
     let device_key = stack.register_device(

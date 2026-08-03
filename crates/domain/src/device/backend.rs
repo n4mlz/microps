@@ -1,5 +1,3 @@
-use alloc::vec::Vec;
-
 use super::{DeviceError, DeviceKey};
 use crate::Platform;
 
@@ -17,7 +15,6 @@ pub trait DeviceBackend<P: Platform> {
         dst: Option<&[u8]>,
     ) -> Result<(), DeviceError>;
 
-    /// Returns `(frame_type, data)` for one received frame. `data` is owned
-    /// by the backend and `None` means that no frame is currently available.
-    fn input(&mut self) -> Result<Option<(u16, Vec<u8>)>, DeviceError>;
+    /// Queues one received frame and raises the logical soft-input IRQ.
+    fn input(&mut self, frame_type: u16, data: &[u8]) -> Result<(), DeviceError>;
 }

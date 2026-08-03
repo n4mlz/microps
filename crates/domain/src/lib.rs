@@ -19,7 +19,7 @@ pub use interface::{
     NetInterface,
 };
 pub use os::{
-    Irq, Lock, Platform, Random, Stdout,
+    Irq, IrqLine, Lock, Platform, Random, Stdout,
     stdout::{Writer, debugdump},
 };
 pub use stack::{Stack, StackError};

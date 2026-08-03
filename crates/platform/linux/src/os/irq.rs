@@ -3,11 +3,11 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-use microps::Irq;
+use microps::{Irq, IrqLine};
 
 use crate::LinuxPlatform;
 
-type Handler = fn(usize, usize);
+type Handler = fn(IrqLine, usize);
 
 static HANDLERS: OnceLock<Mutex<HashMap<usize, (Handler, usize)>>> = OnceLock::new();
 static INSTALLED: OnceLock<Mutex<HashSet<usize>>> = OnceLock::new();
@@ -20,7 +20,14 @@ fn installed() -> &'static Mutex<HashSet<usize>> {
     INSTALLED.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-fn install_signal(irq: usize) {
+fn signal(line: IrqLine) -> usize {
+    match line {
+        IrqLine::SoftInput => libc::SIGUSR1 as usize,
+    }
+}
+
+fn install_signal(line: IrqLine) {
+    let irq = signal(line);
     let mut installed = installed().lock().expect("irq install mutex poisoned");
     if !installed.insert(irq) {
         return;
@@ -33,7 +40,7 @@ fn install_signal(irq: usize) {
                 .get(&irq)
                 .copied()
             {
-                handler(irq, arg);
+                handler(line, arg);
             }
         });
     }
@@ -42,16 +49,18 @@ fn install_signal(irq: usize) {
 impl Irq for LinuxPlatform {
     type Error = core::convert::Infallible;
 
-    fn register(irq: usize, handler: Handler, arg: usize) -> Result<(), Self::Error> {
+    fn register(line: IrqLine, handler: Handler, arg: usize) -> Result<(), Self::Error> {
+        let irq = signal(line);
         handlers()
             .lock()
             .expect("irq registry mutex poisoned")
             .insert(irq, (handler, arg));
-        install_signal(irq);
+        install_signal(line);
         Ok(())
     }
 
-    fn raise(irq: usize) -> Result<(), Self::Error> {
+    fn raise(line: IrqLine) -> Result<(), Self::Error> {
+        let irq = signal(line);
         signal_hook::low_level::raise(irq as i32).expect("failed to raise signal");
         Ok(())
     }

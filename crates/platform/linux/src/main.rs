@@ -2,7 +2,7 @@ use std::{thread, time::Duration};
 
 use linux::{LinuxPlatform, should_terminate};
 use microps::{
-    DeviceKind, DeviceMeta, LoopbackDevice, Stack, debug, error,
+    DeviceKind, DeviceMeta, Irq, IrqLine, LoopbackDevice, Stack, debug, error,
     protocol::{Ipv4Addr, Ipv4Interface},
 };
 
@@ -20,6 +20,12 @@ fn main() {
         DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
         LoopbackDevice::new(stack.input_queue().clone()),
     );
+    <LinuxPlatform as Irq>::register(
+        IrqLine::SoftInput,
+        soft_input_handler,
+        &mut stack as *mut Stack<LinuxPlatform> as usize,
+    )
+    .unwrap();
     let interface_key = stack.interfaces.register(Ipv4Interface::new(
         Ipv4Addr::from([127, 0, 0, 1]),
         Ipv4Addr::from([255, 0, 0, 0]),
@@ -43,14 +49,17 @@ fn main() {
             error!("net_device_output() failure: {error_value}");
             break;
         }
-        if let Err(error_value) = stack.process_input() {
-            error!("input processing failure: {error_value}");
-            break;
-        }
         thread::sleep(Duration::from_secs(1));
     }
 
     debug!("terminate");
     stack.close_all();
     Stack::<LinuxPlatform>::shutdown();
+}
+
+fn soft_input_handler(_: IrqLine, arg: usize) {
+    let stack = unsafe { &mut *(arg as *mut Stack<LinuxPlatform>) };
+    if let Err(error_value) = stack.process_input() {
+        error!("input processing failure: {error_value}");
+    }
 }

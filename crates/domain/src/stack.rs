@@ -42,8 +42,7 @@ impl<P: Platform> Stack<P> {
         meta: DeviceMeta,
         backend: impl DeviceBackend<P> + 'static,
     ) -> DeviceKey {
-        self.devices
-            .register(Device::new(meta, backend, self.input_queue.clone()))
+        self.devices.register(Device::new(meta, backend))
     }
 
     pub fn open_all(&mut self) -> Result<(), StackError> {
@@ -84,9 +83,9 @@ impl<P: Platform> Stack<P> {
         Ok(())
     }
 
-    pub fn init() -> Result<(), P::Error> {
+    pub fn init() -> Result<(), <P as Platform>::Error> {
         info!("initialize...");
-        let result = P::init();
+        let result = <P as Platform>::init();
         if result.is_err() {
             error!("failure");
             return result;
@@ -97,7 +96,7 @@ impl<P: Platform> Stack<P> {
 
     pub fn shutdown() {
         info!("shutting down...");
-        P::shutdown();
+        <P as Platform>::shutdown();
         info!("success");
     }
 }

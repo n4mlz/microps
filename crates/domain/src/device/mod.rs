@@ -84,6 +84,8 @@ pub enum DeviceError {
     NotOpen,
     #[error("device key has not been assigned")]
     MissingDeviceKey,
+    #[error("failed to raise input IRQ")]
+    InputIrq,
     #[error("payload is too large: {len} bytes exceeds MTU {mtu}")]
     PayloadTooLarge { mtu: usize, len: usize },
 }
@@ -91,7 +93,6 @@ pub enum DeviceError {
 #[derive(Getters)]
 pub struct Device<P: Platform> {
     backend: Box<dyn DeviceBackend<P>>,
-    input_queue: InputQueue<P>,
     device_key: Option<DeviceKey>,
     #[getset(get = "pub")]
     meta: DeviceMeta,
@@ -100,14 +101,9 @@ pub struct Device<P: Platform> {
 }
 
 impl<P: Platform> Device<P> {
-    pub fn new(
-        meta: DeviceMeta,
-        backend: impl DeviceBackend<P> + 'static,
-        input_queue: InputQueue<P>,
-    ) -> Self {
+    pub fn new(meta: DeviceMeta, backend: impl DeviceBackend<P> + 'static) -> Self {
         Self {
             backend: Box::new(backend),
-            input_queue,
             device_key: None,
             meta,
             state: DeviceState::new(),
@@ -155,17 +151,5 @@ impl<P: Platform> Device<P> {
             });
         }
         self.backend.output(frame_type, data, dst)
-    }
-
-    pub fn input(&mut self) -> Result<(), DeviceError> {
-        if !self.state.is_up() {
-            return Err(DeviceError::NotOpen);
-        }
-        let device = self.device_key.ok_or(DeviceError::MissingDeviceKey)?;
-        while let Some((frame_type, data)) = self.backend.input()? {
-            self.input_queue
-                .push(ReceivedFrame::new(device, frame_type, &data));
-        }
-        Ok(())
     }
 }

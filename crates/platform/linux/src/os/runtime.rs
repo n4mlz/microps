@@ -28,7 +28,7 @@ impl Platform for LinuxPlatform {
     type Error = Infallible;
     type Mutex<T: Send> = crate::os::LinuxMutex<T>;
 
-    fn init() -> Result<(), Self::Error> {
+    fn init() -> Result<(), <Self as Platform>::Error> {
         <LinuxPlatform as Stdout>::init();
         init_signal();
         Ok(())

@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
-use microps::{Lock, Platform, Stack};
+use microps::{Irq, IrqLine, Lock, Platform, Stack};
 
 struct MockRuntime;
 
@@ -34,13 +34,25 @@ impl Platform for MockRuntime {
     type Error = core::convert::Infallible;
     type Mutex<T: Send> = TestMutex<T>;
 
-    fn init() -> Result<(), Self::Error> {
+    fn init() -> Result<(), <Self as Platform>::Error> {
         INIT_CALLS.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
     fn shutdown() {
         SHUTDOWN_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl Irq for MockRuntime {
+    type Error = core::convert::Infallible;
+
+    fn register(_: IrqLine, _: fn(IrqLine, usize), _: usize) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn raise(_: IrqLine) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 
