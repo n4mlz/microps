@@ -6,7 +6,7 @@ mod packet;
 
 pub use addr::{Ipv4Addr, Ipv4AddrParseError};
 pub use header::{Ipv4Error, Ipv4Header};
-pub use icmp::IcmpPacket;
+pub use icmp::{IcmpError, IcmpHeader, IcmpPacket, IcmpType, UnknownIcmpType};
 pub use interface::{Ipv4Interface, Ipv4OutputError};
 pub use packet::Ipv4Packet;
 

@@ -133,7 +133,10 @@ impl NetInterface for Ipv4Interface {
         debug!("dst: {}", header.destination());
 
         if let Ok(Ipv4Protocol::Icmp) = Ipv4Protocol::try_from(header.protocol()) {
-            IcmpPacket::from_ipv4(packet).input();
+            match IcmpPacket::from_ipv4(packet) {
+                Ok(packet) => packet.input(),
+                Err(error) => error!("{error}"),
+            }
         }
     }
 
