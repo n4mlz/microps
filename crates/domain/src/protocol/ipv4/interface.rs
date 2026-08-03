@@ -1,7 +1,7 @@
 use getset::{CopyGetters, Getters};
 use thiserror::Error;
 
-use super::{Ipv4Addr, Ipv4Packet};
+use super::{IcmpPacket, Ipv4Addr, Ipv4Packet, Ipv4Protocol};
 use crate::{
     AddressFamily, DeviceKey, DeviceRegistry, InterfaceError, InterfaceOutputError, NetInterface,
     Platform, Random, debug, error,
@@ -131,6 +131,10 @@ impl NetInterface for Ipv4Interface {
         debug!("sum: {:?}", header.checksum());
         debug!("src: {}", header.source());
         debug!("dst: {}", header.destination());
+
+        if let Ok(Ipv4Protocol::Icmp) = Ipv4Protocol::try_from(header.protocol()) {
+            IcmpPacket::from_ipv4(packet).input();
+        }
     }
 
     fn has_address(&self, address: &[u8]) -> bool {
