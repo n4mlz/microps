@@ -5,13 +5,11 @@ use std::{
 };
 
 use linux::{EtherTapDevice, LinuxPlatform, ether_tap_irq, should_terminate};
-use microps::{
-    DeviceKind, DeviceMeta, Irq, IrqLine, Stack, debug, error,
-    protocol::{Ipv4Interface, MacAddr},
-};
+use microps::{DeviceKind, DeviceMeta, Irq, IrqLine, Stack, debug, error, protocol::Ipv4Interface};
 
+// These values must match scripts/linux_tap_up.sh:
+// Linux host = 10.0.0.1/24, microps = 10.0.0.2/24.
 const TAP_NAME: &str = "microps0";
-const TAP_ADDRESS: MacAddr = MacAddr::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
 const TAP_IP: [u8; 4] = [10, 0, 0, 2];
 const TAP_NETMASK: [u8; 4] = [255, 255, 255, 0];
 
@@ -26,7 +24,7 @@ fn main() {
         let input_queue = stack.input_queue().clone();
         device_key = stack.register_device(
             DeviceMeta::new(TAP_NAME, DeviceKind::Ethernet, 1500),
-            EtherTapDevice::new(TAP_NAME, TAP_ADDRESS, input_queue),
+            EtherTapDevice::new(TAP_NAME, input_queue),
         );
         interface_key = stack
             .interfaces

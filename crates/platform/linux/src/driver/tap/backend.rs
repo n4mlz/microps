@@ -1,6 +1,6 @@
 use microps::{
     DeviceBackend, DeviceError, DeviceKey, InputQueue, IrqLine, Platform, ReceivedFrame, debug,
-    debugdump,
+    debugdump, info,
     protocol::{EtherType, EthernetFrame, FRAME_LEN_MAX, FRAME_LEN_MIN, HEADER_LEN, MacAddr},
 };
 
@@ -22,10 +22,10 @@ pub struct EtherTapDevice<P: Platform> {
 }
 
 impl<P: Platform> EtherTapDevice<P> {
-    pub fn new(name: impl Into<String>, address: MacAddr, input_queue: InputQueue<P>) -> Self {
+    pub fn new(name: impl Into<String>, input_queue: InputQueue<P>) -> Self {
         Self {
             name: name.into(),
-            address,
+            address: MacAddr::ANY,
             input_queue,
             device_key: None,
             tap: None,
@@ -65,6 +65,11 @@ impl<P: Platform> DeviceBackend<P> for EtherTapDevice<P> {
 
     fn open(&mut self) -> Result<(), DeviceError> {
         let tap = Tap::open(&self.name).map_err(|error| backend_error(error.to_string()))?;
+        self.address = MacAddr::from(
+            tap.hardware_address(&self.name)
+                .map_err(|error| backend_error(error.to_string()))?,
+        );
+        info!("dev={}, addr={}", self.name, self.address);
         tap.configure_async(signal_number(irq()))
             .map_err(|error| backend_error(error.to_string()))?;
         self.tap = Some(tap);

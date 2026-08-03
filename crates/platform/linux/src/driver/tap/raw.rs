@@ -61,6 +61,34 @@ impl Tap {
         self.file.read(buffer)
     }
 
+    pub fn hardware_address(&self, name: &str) -> io::Result<[u8; 6]> {
+        let socket = unsafe { libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0) };
+        if socket == -1 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let mut request = match IfReq::new(name) {
+            Ok(request) => request,
+            Err(error) => {
+                unsafe { libc::close(socket) };
+                return Err(error);
+            }
+        };
+        let result = unsafe { libc::ioctl(socket, libc::SIOCGIFHWADDR, &mut request) };
+        let ioctl_error = (result == -1).then(io::Error::last_os_error);
+        let close_result = unsafe { libc::close(socket) };
+        if let Some(error) = ioctl_error {
+            return Err(error);
+        }
+        if close_result == -1 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let mut address = [0; 6];
+        address.copy_from_slice(&request.data[2..8]);
+        Ok(address)
+    }
+
     pub fn write_frame(&mut self, frame: &[u8]) -> io::Result<usize> {
         self.file.write(frame)
     }
