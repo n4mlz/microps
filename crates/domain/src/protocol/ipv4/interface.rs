@@ -4,7 +4,7 @@ use thiserror::Error;
 use super::{Ipv4Addr, Ipv4Packet};
 use crate::{
     AddressFamily, DeviceKey, DeviceRegistry, InterfaceError, InterfaceOutputError, NetInterface,
-    Random, debug, error,
+    Platform, Random, debug, error,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Getters, CopyGetters)]
@@ -33,9 +33,9 @@ impl Ipv4Interface {
         }
     }
 
-    pub fn output<R: Random>(
+    pub fn output<P: Platform, R: Random>(
         &self,
-        devices: &mut DeviceRegistry,
+        devices: &mut DeviceRegistry<P>,
         protocol: u8,
         data: &[u8],
         source: Ipv4Addr,

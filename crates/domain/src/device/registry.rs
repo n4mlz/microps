@@ -2,28 +2,37 @@ use alloc::vec::Vec;
 
 use slotmap::{SlotMap, new_key_type};
 
-use crate::{Device, DeviceError};
+use crate::{Device, DeviceError, Platform};
 
 new_key_type! {
     /// Stable key for a device owned by a [`DeviceRegistry`].
     pub struct DeviceKey;
 }
 
-#[derive(Debug, Default)]
-pub struct DeviceRegistry {
-    devices: SlotMap<DeviceKey, Device>,
+pub struct DeviceRegistry<P: Platform> {
+    devices: SlotMap<DeviceKey, Device<P>>,
 }
 
-impl DeviceRegistry {
-    pub fn register(&mut self, device: Device) -> DeviceKey {
-        self.devices.insert(device)
+impl<P: Platform> Default for DeviceRegistry<P> {
+    fn default() -> Self {
+        Self {
+            devices: SlotMap::default(),
+        }
+    }
+}
+
+impl<P: Platform> DeviceRegistry<P> {
+    pub fn register(&mut self, device: Device<P>) -> DeviceKey {
+        let key = self.devices.insert(device);
+        self.devices[key].set_device_key(key);
+        key
     }
 
-    pub fn device(&self, key: DeviceKey) -> Option<&Device> {
+    pub fn device(&self, key: DeviceKey) -> Option<&Device<P>> {
         self.devices.get(key)
     }
 
-    pub fn device_mut(&mut self, key: DeviceKey) -> Option<&mut Device> {
+    pub fn device_mut(&mut self, key: DeviceKey) -> Option<&mut Device<P>> {
         self.devices.get_mut(key)
     }
 
@@ -32,7 +41,7 @@ impl DeviceRegistry {
     }
 }
 
-impl DeviceRegistry {
+impl<P: Platform> DeviceRegistry<P> {
     pub fn open_all(&mut self) -> Result<(), DeviceError> {
         let keys: Vec<_> = self.devices.keys().collect();
         for (index, key) in keys.iter().copied().enumerate() {

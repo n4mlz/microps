@@ -11,7 +11,7 @@ mod stack;
 
 pub use device::{
     Device, DeviceBackend, DeviceError, DeviceFlags, DeviceKey, DeviceKind, DeviceMeta,
-    DeviceRegistry, DeviceState,
+    DeviceRegistry, DeviceState, InputQueue, InputQueueInner, ReceivedFrame,
 };
 pub use driver::{DummyDevice, LoopbackDevice};
 pub use interface::{
@@ -19,7 +19,7 @@ pub use interface::{
     NetInterface,
 };
 pub use os::{
-    Irq, Lock, Platform, Random, Stdout,
+    Irq, IrqLine, Lock, Platform, Random, Stdout,
     stdout::{Writer, debugdump},
 };
 pub use stack::{Stack, StackError};

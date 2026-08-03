@@ -1,8 +1,12 @@
-use std::{thread, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    thread,
+    time::Duration,
+};
 
 use linux::{LinuxPlatform, should_terminate};
 use microps::{
-    Device, DeviceKind, DeviceMeta, LoopbackDevice, Stack, debug, error,
+    DeviceKind, DeviceMeta, Irq, IrqLine, LoopbackDevice, Stack, debug, error,
     protocol::{Ipv4Addr, Ipv4Interface},
 };
 
@@ -13,40 +17,67 @@ const TEST_DATA: &[u8] = &[
 ];
 
 fn main() {
-    Stack::init::<LinuxPlatform>().unwrap();
+    Stack::<LinuxPlatform>::init().unwrap();
 
-    let mut stack = Stack::new();
-    let device_key = stack.devices.register(Device::new(
-        DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
-        LoopbackDevice::new(),
-    ));
-    let interface_key = stack.interfaces.register(Ipv4Interface::new(
-        Ipv4Addr::from([127, 0, 0, 1]),
-        Ipv4Addr::from([255, 0, 0, 0]),
-    ));
-    stack
-        .interfaces
-        .attach(interface_key, device_key)
-        .expect("interface attaches to loopback device");
-    stack.open_all().unwrap();
+    let stack = Arc::new(Mutex::new(Stack::<LinuxPlatform>::new()));
+    let interface_key = {
+        let stack = &mut *stack.lock().expect("stack mutex poisoned");
+        let input_queue = stack.input_queue().clone();
+        let device_key = stack.register_device(
+            DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
+            LoopbackDevice::new(input_queue),
+        );
+        let interface_key = stack.interfaces.register(Ipv4Interface::new(
+            Ipv4Addr::from([127, 0, 0, 1]),
+            Ipv4Addr::from([255, 0, 0, 0]),
+        ));
+        stack
+            .interfaces
+            .attach(interface_key, device_key)
+            .expect("interface attaches to loopback device");
+        stack.open_all().unwrap();
+
+        interface_key
+    };
+
+    let soft_input_stack = Arc::clone(&stack);
+    <LinuxPlatform as Irq>::register(
+        IrqLine::SoftInput,
+        Box::new(move |_| {
+            let mut stack = soft_input_stack.lock().expect("stack mutex poisoned");
+            if let Err(error_value) = stack.soft_input() {
+                error!("input processing failure: {error_value}");
+            }
+        }),
+    )
+    .unwrap();
 
     let source = Ipv4Addr::from([127, 0, 0, 1]);
 
     debug!("press Ctrl+C to terminate");
     while !should_terminate() {
-        let (interfaces, devices) = (&mut stack.interfaces, &mut stack.devices);
-        let result = interfaces
-            .interface_as::<Ipv4Interface>(interface_key)
-            .unwrap()
-            .output::<LinuxPlatform>(devices, 1, &TEST_DATA[20..], source, source);
-        if let Err(error_value) = result {
-            error!("net_device_output() failure: {error_value}");
-            break;
+        {
+            let stack = &mut *stack.lock().expect("stack mutex poisoned");
+            let (interfaces, devices) = (&mut stack.interfaces, &mut stack.devices);
+            let result = interfaces
+                .interface_as::<Ipv4Interface>(interface_key)
+                .unwrap()
+                .output::<LinuxPlatform, LinuxPlatform>(
+                    devices,
+                    1,
+                    &TEST_DATA[20..],
+                    source,
+                    source,
+                );
+            if let Err(error_value) = result {
+                error!("net_device_output() failure: {error_value}");
+                break;
+            }
         }
         thread::sleep(Duration::from_secs(1));
     }
 
     debug!("terminate");
-    stack.close_all();
-    Stack::shutdown::<LinuxPlatform>();
+    stack.lock().expect("stack mutex poisoned").close_all();
+    Stack::<LinuxPlatform>::shutdown();
 }

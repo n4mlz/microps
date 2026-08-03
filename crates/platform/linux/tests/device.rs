@@ -1,6 +1,6 @@
 use linux::LinuxPlatform;
 use microps::{
-    Device, DeviceKind, DeviceMeta, LoopbackDevice, Stack,
+    DeviceKind, DeviceMeta, Irq, IrqLine, LoopbackDevice, Stack,
     protocol::{Ipv4Addr, Ipv4Interface},
 };
 
@@ -12,13 +12,15 @@ const TEST_DATA: &[u8] = &[
 
 #[test]
 fn loopback_device_runs_through_the_stack() {
-    Stack::init::<LinuxPlatform>().expect("stack initializes");
+    Stack::<LinuxPlatform>::init().expect("stack initializes");
+    <LinuxPlatform as Irq>::register(IrqLine::SoftInput, Box::new(|_line| {}))
+        .expect("soft IRQ registers");
 
-    let mut stack = Stack::new();
-    let device_key = stack.devices.register(Device::new(
+    let mut stack = Stack::<LinuxPlatform>::new();
+    let device_key = stack.register_device(
         DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
-        LoopbackDevice::new(),
-    ));
+        LoopbackDevice::new(stack.input_queue().clone()),
+    );
     let interface_key = stack.interfaces.register(Ipv4Interface::new(
         Ipv4Addr::from([127, 0, 0, 1]),
         Ipv4Addr::from([255, 0, 0, 0]),
@@ -34,8 +36,8 @@ fn loopback_device_runs_through_the_stack() {
     interfaces
         .interface_as::<Ipv4Interface>(interface_key)
         .expect("interface exists")
-        .output::<LinuxPlatform>(devices, 1, &TEST_DATA[20..], source, source)
+        .output::<LinuxPlatform, LinuxPlatform>(devices, 1, &TEST_DATA[20..], source, source)
         .expect("loopback output succeeds");
     stack.close_all();
-    Stack::shutdown::<LinuxPlatform>();
+    Stack::<LinuxPlatform>::shutdown();
 }

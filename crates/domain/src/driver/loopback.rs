@@ -1,22 +1,44 @@
-use crate::{DeviceBackend, debug, debugdump};
+use crate::{
+    DeviceBackend, DeviceError, DeviceKey, InputQueue, IrqLine, Platform, ReceivedFrame, debug,
+    debugdump,
+};
 
-#[derive(Debug, Default)]
-pub struct LoopbackDevice;
+pub struct LoopbackDevice<P: Platform> {
+    input_queue: InputQueue<P>,
+    device_key: Option<DeviceKey>,
+}
 
-impl LoopbackDevice {
-    pub fn new() -> Self {
-        Self
+impl<P: Platform> LoopbackDevice<P> {
+    pub fn new(input_queue: InputQueue<P>) -> Self {
+        Self {
+            input_queue,
+            device_key: None,
+        }
     }
 }
 
-impl DeviceBackend for LoopbackDevice {
-    fn output(&mut self, frame_type: u16, data: &[u8], _dst: Option<&[u8]>) {
+impl<P: Platform> DeviceBackend<P> for LoopbackDevice<P> {
+    fn set_device_key(&mut self, device: DeviceKey) {
+        self.device_key = Some(device);
+    }
+
+    fn output(
+        &mut self,
+        frame_type: u16,
+        data: &[u8],
+        _dst: Option<&[u8]>,
+    ) -> Result<(), DeviceError> {
         debug!("type=0x{frame_type:04x}, len={}", data.len());
         debugdump(data);
+        self.device_key.ok_or(DeviceError::MissingDeviceKey)?;
+        self.input(frame_type, data)?;
+        Ok(())
+    }
 
-        // Step 5 does not reintroduce loopback frames into the stack. When
-        // deferred input is added, share only the input queue with this
-        // backend (not the Stack itself); Stack will process the queue after
-        // releasing the device borrow.
+    fn input(&mut self, frame_type: u16, data: &[u8]) -> Result<(), DeviceError> {
+        let device = self.device_key.ok_or(DeviceError::MissingDeviceKey)?;
+        self.input_queue
+            .push(ReceivedFrame::new(device, frame_type, data));
+        P::raise(IrqLine::SoftInput).map_err(|_| DeviceError::InputIrq)
     }
 }
