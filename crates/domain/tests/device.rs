@@ -43,7 +43,7 @@ impl Platform for TestPlatform {
 impl Irq for TestPlatform {
     type Error = core::convert::Infallible;
 
-    fn register(_: IrqLine, _: fn(IrqLine, usize), _: usize) -> Result<(), Self::Error> {
+    fn register(_: IrqLine, _: Box<dyn Fn(IrqLine) + Send + Sync>) -> Result<(), Self::Error> {
         Ok(())
     }
 
@@ -138,6 +138,6 @@ fn loopback_transfers_output_to_the_input_queue() {
     device_ref
         .output(EtherType::Ipv4 as u16, &[1, 2, 3], None)
         .unwrap();
-    stack.process_input().unwrap();
+    stack.soft_input().unwrap();
     stack.close_all();
 }

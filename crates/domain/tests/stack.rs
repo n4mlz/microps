@@ -47,7 +47,7 @@ impl Platform for MockRuntime {
 impl Irq for MockRuntime {
     type Error = core::convert::Infallible;
 
-    fn register(_: IrqLine, _: fn(IrqLine, usize), _: usize) -> Result<(), Self::Error> {
+    fn register(_: IrqLine, _: Box<dyn Fn(IrqLine) + Send + Sync>) -> Result<(), Self::Error> {
         Ok(())
     }
 

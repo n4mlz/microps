@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// Network stack state and ownership root for devices and interfaces.
-#[derive(Getters)]
+#[derive(Getters, Default)]
 pub struct Stack<P: Platform> {
     pub devices: DeviceRegistry<P>,
     pub interfaces: InterfaceRegistry,
@@ -54,7 +54,7 @@ impl<P: Platform> Stack<P> {
         self.devices.close_all();
     }
 
-    pub fn process_input(&mut self) -> Result<(), StackError> {
+    pub fn soft_input(&mut self) -> Result<(), StackError> {
         while let Some(frame) = self.input_queue.pop() {
             let device = frame.device();
             if self.devices.device(device).is_none() {

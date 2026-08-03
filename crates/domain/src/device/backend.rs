@@ -1,7 +1,7 @@
 use super::{DeviceError, DeviceKey};
 use crate::Platform;
 
-pub trait DeviceBackend<P: Platform> {
+pub trait DeviceBackend<P: Platform>: Send {
     fn open(&mut self) {}
 
     fn close(&mut self) {}

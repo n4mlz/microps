@@ -64,6 +64,10 @@ impl<P: Platform> InputQueueInner<P> {
             .expect("input queue lock is infallible")
             .len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 /// Shared input queue owned by the stack and devices.

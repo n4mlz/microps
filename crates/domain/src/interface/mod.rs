@@ -21,7 +21,7 @@ pub enum AddressFamily {
     Ipv6,
 }
 
-pub trait NetInterface: core::fmt::Debug {
+pub trait NetInterface: core::fmt::Debug + Send {
     fn as_any(&self) -> &dyn Any;
 
     fn family(&self) -> AddressFamily;
