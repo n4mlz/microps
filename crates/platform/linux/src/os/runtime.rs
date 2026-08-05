@@ -4,7 +4,6 @@ use std::{
         Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
-    thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -31,16 +30,10 @@ fn init_signal() {
         .get_or_init(|| Arc::new(AtomicBool::new(false)))
         .clone();
     terminate.store(false, Ordering::SeqCst);
-    let mut signals = signal_hook::iterator::Signals::new([
-        signal_hook::consts::SIGINT,
-        signal_hook::consts::SIGTERM,
-    ])
-    .expect("failed to register termination signals");
-    thread::spawn(move || {
-        for _signal in signals.forever() {
-            terminate.store(true, Ordering::SeqCst);
-        }
-    });
+    signal_hook::flag::register(signal_hook::consts::SIGINT, terminate.clone())
+        .expect("failed to register SIGINT handler");
+    signal_hook::flag::register(signal_hook::consts::SIGTERM, terminate)
+        .expect("failed to register SIGTERM handler");
 }
 
 pub fn should_terminate() -> bool {
