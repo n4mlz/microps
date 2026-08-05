@@ -10,7 +10,7 @@ pub use packet::*;
 
 use crate::{
     NetInterface, Platform, Random, debug, error,
-    protocol::{EtherType, Icmp},
+    protocol::{Arp, EtherType, Icmp, MacAddr},
 };
 
 #[repr(u8)]
@@ -70,11 +70,23 @@ impl Ipv4 {
         }
         let id = R::random16().map_err(Ipv4OutputError::Random)?;
         let packet = Ipv4Packet::build(protocol, data, id, source, destination)?;
+        let dest_hardware = if interface.hardware_address::<P>().is_some() {
+            Some(
+                if destination == interface.broadcast() || destination == Ipv4Addr::BROADCAST {
+                    MacAddr::BROADCAST
+                } else {
+                    Arp::resolve::<P>(destination).ok_or(Ipv4OutputError::DestinationUnreachable)?
+                },
+            )
+        } else {
+            None
+        };
+        let dest_bytes = dest_hardware.map(|address| address.bytes());
         <Ipv4Interface as NetInterface<P>>::output_raw(
             interface,
             EtherType::Ipv4 as u16,
             &packet,
-            None,
+            dest_bytes.as_ref().map(|bytes| &bytes[..]),
         )?;
         Ok(packet.len())
     }
