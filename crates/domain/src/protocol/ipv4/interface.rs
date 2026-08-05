@@ -67,6 +67,8 @@ impl Ipv4Interface {
 
 #[derive(Debug, Error)]
 pub enum Ipv4OutputError<E> {
+    #[error("a source address is required for the broadcast destination")]
+    SourceRequiredForBroadcast,
     #[error("output source address does not belong to the interface")]
     SourceNotOwned,
     #[error("output destination is not reachable")]

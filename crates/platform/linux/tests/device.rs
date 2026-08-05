@@ -17,7 +17,7 @@ fn loopback_device_runs_through_the_stack() {
         .expect("soft IRQ registers");
 
     let stack = linux::stack();
-    let device_key = stack.register_device(
+    let device_key = stack.devices.register_device(
         DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
         LoopbackDevice::new(),
     );
