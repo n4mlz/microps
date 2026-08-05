@@ -26,7 +26,7 @@ pub enum StackError {
     Interface(#[from] InterfaceError),
 }
 
-impl<P: Platform> Stack<P> {
+impl<P: Platform + 'static> Stack<P> {
     pub fn new() -> Self {
         Self {
             devices: DeviceRegistry::default(),

@@ -5,7 +5,7 @@ use std::sync::{
 
 use microps::{
     Device, DeviceBackend, DeviceError, DeviceKind, DeviceMeta, DeviceRegistry, Irq, IrqLine, Lock,
-    LoopbackDevice, Platform, Stack, protocol::EtherType,
+    LoopbackDevice, Platform, Random, Stack, protocol::EtherType,
 };
 
 #[derive(Debug, Default)]
@@ -44,6 +44,14 @@ impl Platform for TestPlatform {
     }
 
     fn shutdown() {}
+}
+
+impl Random for TestPlatform {
+    type Error = core::convert::Infallible;
+
+    fn random16() -> Result<u16, Self::Error> {
+        Ok(0)
+    }
 }
 
 impl Irq for TestPlatform {

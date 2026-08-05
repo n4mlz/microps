@@ -1,7 +1,9 @@
 mod ethernet;
+mod icmp;
 mod ipv4;
 
 pub use ethernet::*;
+pub use icmp::*;
 pub use ipv4::*;
 
 pub(crate) fn checksum16(data: &[u8]) -> u16 {

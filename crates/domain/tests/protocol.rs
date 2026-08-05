@@ -1,9 +1,6 @@
-use microps::{
-    NetInterface,
-    protocol::{
-        EtherType, EthernetError, EthernetFrame, IcmpError, IcmpHeader, IcmpPacket, IcmpType,
-        Ipv4Addr, Ipv4Error, Ipv4Header, Ipv4Interface, Ipv4Packet, Ipv4Protocol, MacAddr,
-    },
+use microps::protocol::{
+    EtherType, EthernetError, EthernetFrame, IcmpError, IcmpHeader, IcmpPacket, IcmpType, Ipv4Addr,
+    Ipv4Error, Ipv4Header, Ipv4Interface, Ipv4Packet, Ipv4Protocol, MacAddr,
 };
 
 #[test]

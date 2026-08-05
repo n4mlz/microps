@@ -1,12 +1,21 @@
+use alloc::vec::Vec;
 use core::fmt;
 
 use getset::{CopyGetters, Getters};
 use thiserror::Error;
 
-use super::{Ipv4Addr, Ipv4Packet};
-use crate::{debug, debugdump, protocol::checksum16};
+use crate::{
+    debug, debugdump,
+    protocol::{
+        checksum16,
+        ipv4::{Ipv4Addr, Ipv4Packet},
+    },
+};
 
 pub const ICMP_HEADER_LEN: usize = 8;
+
+/// ICMP protocol operations that do not require an instance.
+pub struct Icmp;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -130,30 +139,42 @@ impl<'a> IcmpPacket<'a> {
             data: packet.payload(),
         })
     }
+}
 
-    pub fn input(&self) {
+impl Icmp {
+    pub fn output(type_value: u8, code: u8, dependent: u32, payload: &[u8]) -> Vec<u8> {
+        let mut data = Vec::with_capacity(ICMP_HEADER_LEN + payload.len());
+        data.extend_from_slice(&[type_value, code, 0, 0]);
+        data.extend_from_slice(&dependent.to_be_bytes());
+        data.extend_from_slice(payload);
+        let checksum = checksum16(&data);
+        data[2..4].copy_from_slice(&checksum.to_be_bytes());
+        data
+    }
+
+    pub fn input<'a>(packet: Ipv4Packet<'a>) -> Result<IcmpPacket<'a>, IcmpError> {
+        let packet = IcmpPacket::from_ipv4(packet)?;
         debug!(
             "{} => {}, len={}",
-            self.source,
-            self.destination,
-            self.payload.len() + ICMP_HEADER_LEN
+            packet.source,
+            packet.destination,
+            packet.payload.len() + ICMP_HEADER_LEN
         );
-        match IcmpType::try_from(self.header.type_value()) {
-            Ok(kind) => debug!("type: {} ({})", self.header.type_value(), kind),
-            Err(_) => debug!("type: {} (Unknown)", self.header.type_value()),
+        match IcmpType::try_from(packet.header.type_value()) {
+            Ok(kind) => debug!("type: {} ({})", packet.header.type_value(), kind),
+            Err(_) => debug!("type: {} (Unknown)", packet.header.type_value()),
         }
-        debug!("code: {}", self.header.code());
-        debug!("sum: 0x{:04x}", self.header.checksum());
-        match IcmpType::try_from(self.header.type_value()) {
+        debug!("code: {}", packet.header.code());
+        debug!("sum: 0x{:04x}", packet.header.checksum());
+        match IcmpType::try_from(packet.header.type_value()) {
             Ok(IcmpType::Echo | IcmpType::EchoReply) => {
-                debug!("id: {}", self.header.dependent() >> 16);
-                debug!("seq: {}", self.header.dependent() & 0xffff);
+                debug!("id: {}", packet.header.dependent() >> 16);
+                debug!("seq: {}", packet.header.dependent() & 0xffff);
             }
-            Ok(IcmpType::DestinationUnreachable) => {
-                debug!("unused: {}", self.header.dependent());
-            }
-            _ => debug!("dep: 0x{:08x}", self.header.dependent()),
+            Ok(IcmpType::DestinationUnreachable) => debug!("unused: {}", packet.header.dependent()),
+            _ => debug!("dep: 0x{:08x}", packet.header.dependent()),
         }
-        debugdump(self.data);
+        debugdump(packet.data);
+        Ok(packet)
     }
 }

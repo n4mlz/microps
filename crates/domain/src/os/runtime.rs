@@ -1,7 +1,7 @@
 use super::Lock;
 
 /// Platform-specific lifecycle required by the stack.
-pub trait Platform: super::Irq {
+pub trait Platform: super::Irq + super::Random {
     type Error;
     type Mutex<T>: Lock<T> + Send + Sync
     where
