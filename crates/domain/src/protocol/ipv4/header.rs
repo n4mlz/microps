@@ -1,7 +1,7 @@
 use getset::CopyGetters;
 use thiserror::Error;
 
-use super::{HEADER_LEN, Ipv4Addr, VERSION};
+use super::{IP_HEADER_LEN, Ipv4Addr, VERSION};
 use crate::protocol::checksum16;
 
 /// The fixed-size IPv4 base header.
@@ -35,7 +35,7 @@ impl TryFrom<&[u8]> for Ipv4Header {
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
         const FRAGMENT_OFFSET_MASK: u16 = 0x1fff;
 
-        if data.len() < HEADER_LEN {
+        if data.len() < IP_HEADER_LEN {
             return Err(Ipv4Error::TooShort { len: data.len() });
         }
 
@@ -45,10 +45,10 @@ impl TryFrom<&[u8]> for Ipv4Header {
         }
 
         let header_len = usize::from(data[0] & 0x0f) * 4;
-        if header_len != HEADER_LEN {
+        if header_len != IP_HEADER_LEN {
             return Err(Ipv4Error::InvalidHeaderLength { header_len });
         }
-        if checksum16(&data[..HEADER_LEN]) != 0 {
+        if checksum16(&data[..IP_HEADER_LEN]) != 0 {
             return Err(Ipv4Error::InvalidChecksum);
         }
 
@@ -84,9 +84,9 @@ impl Ipv4Header {
         }
     }
 
-    pub fn to_bytes(&self, total_len: u16) -> [u8; HEADER_LEN] {
+    pub fn to_bytes(&self, total_len: u16) -> [u8; IP_HEADER_LEN] {
         let flags_and_offset = (u16::from(self.flags) << 13) | self.fragment_offset;
-        let mut data = [0; HEADER_LEN];
+        let mut data = [0; IP_HEADER_LEN];
         data[0] = self.version << 4 | 5;
         data[1] = self.tos;
         data[2..4].copy_from_slice(&total_len.to_be_bytes());

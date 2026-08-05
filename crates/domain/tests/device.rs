@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, OnceLock,
     atomic::{AtomicUsize, Ordering},
 };
 
@@ -33,9 +33,15 @@ impl<T> Lock<T> for TestMutex<T> {
 #[derive(Debug, Clone, Copy, Default)]
 struct TestPlatform;
 
+static STACK: OnceLock<Stack<TestPlatform>> = OnceLock::new();
+
 impl Platform for TestPlatform {
     type Error = core::convert::Infallible;
     type Mutex<T: Send> = TestMutex<T>;
+
+    fn stack() -> &'static Stack<Self> {
+        STACK.get_or_init(Stack::new)
+    }
 
     fn shutdown() {}
 }
@@ -97,13 +103,14 @@ impl DeviceBackend<TestPlatform> for CountingBackend {
 
 #[test]
 fn registry_returns_a_stable_device_key() {
-    let mut registry = DeviceRegistry::<TestPlatform>::default();
+    let registry = DeviceRegistry::<TestPlatform>::default();
     let (backend, _, _, _) = CountingBackend::new();
     let handle = registry.register(Device::new(
         DeviceMeta::new("net0", DeviceKind::Dummy, 128),
         backend,
     ));
-    assert_eq!(registry.device(handle).unwrap().meta().name(), "net0");
+    let devices = registry.acquire().unwrap();
+    assert_eq!(devices.get(handle).unwrap().meta().name(), "net0");
 }
 
 #[test]
@@ -130,16 +137,20 @@ fn device_enforces_state_and_mtu() {
 
 #[test]
 fn loopback_transfers_output_to_the_input_queue() {
-    let mut stack = Stack::<TestPlatform>::new();
+    let stack = TestPlatform::stack();
     let device = stack.register_device(
         DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
-        LoopbackDevice::new(stack.input_queue().clone()),
+        LoopbackDevice::new(),
     );
     stack.open_all().unwrap();
-    let device_ref = stack.devices.device_mut(device).unwrap();
-    device_ref
-        .output(EtherType::Ipv4 as u16, &[1, 2, 3], None)
-        .unwrap();
+    {
+        let mut devices = stack.devices.acquire().unwrap();
+        devices
+            .get_mut(device)
+            .unwrap()
+            .output(EtherType::Ipv4 as u16, &[1, 2, 3], None)
+            .unwrap();
+    }
     stack.soft_input().unwrap();
     stack.close_all();
 }

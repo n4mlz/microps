@@ -3,8 +3,8 @@ use thiserror::Error;
 
 use super::{IcmpPacket, Ipv4Addr, Ipv4Packet, Ipv4Protocol};
 use crate::{
-    AddressFamily, DeviceKey, DeviceRegistry, InterfaceError, InterfaceOutputError, NetInterface,
-    Platform, Random, debug, error,
+    AddressFamily, DeviceKey, InterfaceError, InterfaceOutputError, NetInterface, Platform, Random,
+    debug, error,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Getters, CopyGetters)]
@@ -33,9 +33,8 @@ impl Ipv4Interface {
         }
     }
 
-    pub fn output<P: Platform, R: Random>(
+    pub fn output<P: Platform + 'static, R: Random>(
         &self,
-        devices: &mut DeviceRegistry<P>,
         protocol: u8,
         data: &[u8],
         source: Ipv4Addr,
@@ -58,12 +57,7 @@ impl Ipv4Interface {
 
         let id = R::random16().map_err(Ipv4OutputError::Random)?;
         let packet = Ipv4Packet::build(protocol, data, id, source, destination)?;
-        self.output_raw(
-            devices,
-            crate::protocol::EtherType::Ipv4 as u16,
-            &packet,
-            None,
-        )?;
+        self.output_raw::<P>(crate::protocol::EtherType::Ipv4 as u16, &packet, None)?;
         Ok(packet.len())
     }
 }

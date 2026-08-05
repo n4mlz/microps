@@ -6,7 +6,7 @@ use thiserror::Error;
 use super::{Ipv4Addr, Ipv4Packet};
 use crate::{debug, debugdump, protocol::checksum16};
 
-pub const HEADER_LEN: usize = 8;
+pub const ICMP_HEADER_LEN: usize = 8;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -83,7 +83,7 @@ impl TryFrom<&[u8]> for IcmpHeader {
     type Error = IcmpError;
 
     fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
-        if data.len() < HEADER_LEN {
+        if data.len() < ICMP_HEADER_LEN {
             return Err(IcmpError::TooShort { len: data.len() });
         }
         if checksum16(data) != 0 {
@@ -126,7 +126,7 @@ impl<'a> IcmpPacket<'a> {
             source: packet.header().source(),
             destination: packet.header().destination(),
             header,
-            payload: &packet.payload()[HEADER_LEN..],
+            payload: &packet.payload()[ICMP_HEADER_LEN..],
             data: packet.payload(),
         })
     }
@@ -136,7 +136,7 @@ impl<'a> IcmpPacket<'a> {
             "{} => {}, len={}",
             self.source,
             self.destination,
-            self.payload.len() + HEADER_LEN
+            self.payload.len() + ICMP_HEADER_LEN
         );
         match IcmpType::try_from(self.header.type_value()) {
             Ok(kind) => debug!("type: {} ({})", self.header.type_value(), kind),

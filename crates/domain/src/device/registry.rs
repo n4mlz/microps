@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use slotmap::{SlotMap, new_key_type};
 
-use crate::{Device, DeviceError, Platform};
+use crate::{Device, DeviceError, DeviceKind, Lock, Platform};
 
 new_key_type! {
     /// Stable key for a device owned by a [`DeviceRegistry`].
@@ -10,44 +10,85 @@ new_key_type! {
 }
 
 pub struct DeviceRegistry<P: Platform> {
-    devices: SlotMap<DeviceKey, Device<P>>,
+    devices: P::Mutex<SlotMap<DeviceKey, Device<P>>>,
 }
+
+type Devices<P> = SlotMap<DeviceKey, Device<P>>;
+type DeviceGuard<'a, P> = <<P as Platform>::Mutex<Devices<P>> as Lock<Devices<P>>>::Guard<'a>;
+type DeviceLockError<P> = <<P as Platform>::Mutex<Devices<P>> as Lock<Devices<P>>>::Error;
 
 impl<P: Platform> Default for DeviceRegistry<P> {
     fn default() -> Self {
         Self {
-            devices: SlotMap::default(),
+            devices: P::Mutex::new(SlotMap::default()),
         }
     }
 }
 
 impl<P: Platform> DeviceRegistry<P> {
-    pub fn register(&mut self, device: Device<P>) -> DeviceKey {
-        let key = self.devices.insert(device);
-        self.devices[key].set_device_key(key);
+    pub fn register(&self, device: Device<P>) -> DeviceKey {
+        let mut devices = self
+            .devices
+            .acquire()
+            .expect("device registry lock is infallible");
+        let key = devices.insert(device);
+        devices[key].set_device_key(key);
         key
     }
 
-    pub fn device(&self, key: DeviceKey) -> Option<&Device<P>> {
-        self.devices.get(key)
+    pub fn acquire(&self) -> Result<DeviceGuard<'_, P>, DeviceLockError<P>> {
+        self.devices.acquire()
     }
 
-    pub fn device_mut(&mut self, key: DeviceKey) -> Option<&mut Device<P>> {
-        self.devices.get_mut(key)
+    pub fn contains(&self, key: DeviceKey) -> bool {
+        self.devices
+            .acquire()
+            .expect("device registry lock is infallible")
+            .contains_key(key)
     }
 
-    pub fn keys(&self) -> impl Iterator<Item = DeviceKey> + '_ {
-        self.devices.keys()
+    pub fn keys(&self) -> Vec<DeviceKey> {
+        self.devices
+            .acquire()
+            .expect("device registry lock is infallible")
+            .keys()
+            .collect()
     }
-}
 
-impl<P: Platform> DeviceRegistry<P> {
-    pub fn open_all(&mut self) -> Result<(), DeviceError> {
-        let keys: Vec<_> = self.devices.keys().collect();
+    pub fn output(
+        &self,
+        key: DeviceKey,
+        frame_type: u16,
+        data: &[u8],
+        destination: Option<&[u8]>,
+    ) -> Result<(), DeviceError> {
+        let loopback = {
+            let mut devices = self
+                .devices
+                .acquire()
+                .expect("device registry lock is infallible");
+            let device = devices.get_mut(key).ok_or(DeviceError::NotOpen)?;
+            let loopback = device.meta().kind() == DeviceKind::Loopback;
+            device.output(frame_type, data, destination)?;
+            loopback
+        };
+
+        if loopback {
+            P::raise(crate::IrqLine::SoftInput).map_err(|_| DeviceError::InputIrq)?;
+        }
+        Ok(())
+    }
+
+    pub fn open_all(&self) -> Result<(), DeviceError> {
+        let mut devices = self
+            .devices
+            .acquire()
+            .expect("device registry lock is infallible");
+        let keys: Vec<_> = devices.keys().collect();
         for (index, key) in keys.iter().copied().enumerate() {
-            if let Err(error) = self.devices[key].open() {
+            if let Err(error) = devices[key].open() {
                 for key in keys[..index].iter().rev().copied() {
-                    let device = &mut self.devices[key];
+                    let device = &mut devices[key];
                     let _ = device.close();
                 }
                 return Err(error);
@@ -56,10 +97,14 @@ impl<P: Platform> DeviceRegistry<P> {
         Ok(())
     }
 
-    pub fn close_all(&mut self) {
-        let keys: Vec<_> = self.devices.keys().collect();
+    pub fn close_all(&self) {
+        let mut devices = self
+            .devices
+            .acquire()
+            .expect("device registry lock is infallible");
+        let keys: Vec<_> = devices.keys().collect();
         for key in keys.into_iter().rev() {
-            let _ = self.devices[key].close();
+            let _ = devices[key].close();
         }
     }
 }

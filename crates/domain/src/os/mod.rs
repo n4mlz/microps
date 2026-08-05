@@ -4,8 +4,8 @@ mod random;
 mod runtime;
 pub mod stdout;
 
-pub use irq::{Irq, IrqLine};
-pub use lock::Lock;
-pub use random::Random;
-pub use runtime::Platform;
-pub use stdout::Stdout;
+pub use irq::*;
+pub use lock::*;
+pub use random::*;
+pub use runtime::*;
+pub use stdout::*;

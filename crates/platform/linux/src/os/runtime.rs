@@ -52,6 +52,10 @@ impl Platform for LinuxPlatform {
     type Error = Infallible;
     type Mutex<T: Send> = crate::os::LinuxMutex<T>;
 
+    fn stack() -> &'static microps::Stack<Self> {
+        crate::stack()
+    }
+
     fn init() -> Result<(), <Self as Platform>::Error> {
         <LinuxPlatform as Stdout>::init();
         init_signal();

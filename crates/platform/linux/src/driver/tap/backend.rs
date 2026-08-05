@@ -1,6 +1,6 @@
 use microps::{
-    DeviceBackend, DeviceError, DeviceKey, InputQueue, IrqLine, Platform, ReceivedFrame, debug,
-    debugdump, info,
+    DeviceBackend, DeviceError, DeviceKey, IrqLine, Platform, ReceivedFrame, debug, debugdump,
+    info,
     protocol::{EtherType, EthernetFrame, FRAME_LEN_MAX, FRAME_LEN_MIN, HEADER_LEN, MacAddr},
 };
 
@@ -9,24 +9,18 @@ use crate::os::signal_number;
 
 const READ_BUFFER_LEN: usize = FRAME_LEN_MAX;
 
-pub const fn irq() -> IrqLine {
-    IrqLine::DeviceInput
-}
-
-pub struct EtherTapDevice<P: Platform> {
+pub struct EtherTapDevice {
     name: String,
     address: MacAddr,
-    input_queue: InputQueue<P>,
     device_key: Option<DeviceKey>,
     tap: Option<Tap>,
 }
 
-impl<P: Platform> EtherTapDevice<P> {
-    pub fn new(name: impl Into<String>, input_queue: InputQueue<P>) -> Self {
+impl EtherTapDevice {
+    pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
             address: MacAddr::ANY,
-            input_queue,
             device_key: None,
             tap: None,
         }
@@ -36,7 +30,7 @@ impl<P: Platform> EtherTapDevice<P> {
         self.tap.as_mut().ok_or(DeviceError::NotOpen)
     }
 
-    fn handle_frame(&mut self, frame: &[u8]) -> Result<(), DeviceError> {
+    fn handle_frame<P: Platform + 'static>(&mut self, frame: &[u8]) -> Result<(), DeviceError> {
         let frame =
             EthernetFrame::try_from(frame).map_err(|error| backend_error(error.to_string()))?;
         if frame.header().destination() != self.address
@@ -52,13 +46,14 @@ impl<P: Platform> EtherTapDevice<P> {
             frame.payload().len()
         );
         debugdump(frame.payload());
-        self.input_queue
+        P::stack()
+            .input_queue
             .push(ReceivedFrame::new(device, frame_type, frame.payload()));
         Ok(())
     }
 }
 
-impl<P: Platform> DeviceBackend<P> for EtherTapDevice<P> {
+impl<P: Platform + 'static> DeviceBackend<P> for EtherTapDevice {
     fn set_device_key(&mut self, device: DeviceKey) {
         self.device_key = Some(device);
     }
@@ -70,7 +65,7 @@ impl<P: Platform> DeviceBackend<P> for EtherTapDevice<P> {
                 .map_err(|error| backend_error(error.to_string()))?,
         );
         info!("dev={}, addr={}", self.name, self.address);
-        tap.configure_async(signal_number(irq()))
+        tap.configure_async(signal_number(IrqLine::DeviceInput))
             .map_err(|error| backend_error(error.to_string()))?;
         self.tap = Some(tap);
         Ok(())
@@ -138,7 +133,7 @@ impl<P: Platform> DeviceBackend<P> for EtherTapDevice<P> {
                 Err(error) if error.raw_os_error() == Some(libc::EINTR) => continue,
                 Err(error) => return Err(backend_error(error.to_string())),
             };
-            self.handle_frame(&buffer[..length])?;
+            self.handle_frame::<P>(&buffer[..length])?;
         }
     }
 }

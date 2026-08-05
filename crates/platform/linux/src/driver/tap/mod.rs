@@ -1,5 +1,5 @@
 mod backend;
 mod raw;
 
-pub use backend::{EtherTapDevice, irq};
-pub use raw::Tap;
+pub use backend::*;
+pub use raw::*;

@@ -1,4 +1,3 @@
-use getset::Getters;
 use thiserror::Error;
 
 use crate::{
@@ -8,12 +7,11 @@ use crate::{
 };
 
 /// Network stack state and ownership root for devices and interfaces.
-#[derive(Getters, Default)]
+#[derive(Default)]
 pub struct Stack<P: Platform> {
     pub devices: DeviceRegistry<P>,
-    pub interfaces: InterfaceRegistry,
-    #[getset(get = "pub")]
-    input_queue: InputQueue<P>,
+    pub interfaces: InterfaceRegistry<P>,
+    pub input_queue: InputQueue<P>,
 }
 
 #[derive(Debug, Error)]
@@ -38,26 +36,26 @@ impl<P: Platform> Stack<P> {
     }
 
     pub fn register_device(
-        &mut self,
+        &self,
         meta: DeviceMeta,
         backend: impl DeviceBackend<P> + 'static,
     ) -> DeviceKey {
         self.devices.register(Device::new(meta, backend))
     }
 
-    pub fn open_all(&mut self) -> Result<(), StackError> {
+    pub fn open_all(&self) -> Result<(), StackError> {
         self.devices.open_all()?;
         Ok(())
     }
 
-    pub fn close_all(&mut self) {
+    pub fn close_all(&self) {
         self.devices.close_all();
     }
 
-    pub fn soft_input(&mut self) -> Result<(), StackError> {
+    pub fn soft_input(&self) -> Result<(), StackError> {
         while let Some(frame) = self.input_queue.pop() {
             let device = frame.device();
-            if self.devices.device(device).is_none() {
+            if !self.devices.contains(device) {
                 return Err(StackError::DeviceNotFound);
             }
             debug!(
@@ -72,10 +70,20 @@ impl<P: Platform> Stack<P> {
                     continue;
                 }
             };
-            let Some(interface_key) = self.interfaces.first_for_device(device, family) else {
+            let mut interfaces = self
+                .interfaces
+                .acquire()
+                .expect("interface registry lock is infallible");
+            let Some(interface_key) = interfaces
+                .iter()
+                .find(|(_, interface)| {
+                    interface.device() == Some(device) && interface.family() == family
+                })
+                .map(|(key, _)| key)
+            else {
                 continue;
             };
-            let Some(interface) = self.interfaces.interface_mut(interface_key) else {
+            let Some(interface) = interfaces.get_mut(interface_key) else {
                 return Err(StackError::InterfaceNotFound);
             };
             interface.input(frame.data());

@@ -1,9 +1,11 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use microps::{Irq, IrqLine, Lock, Platform, Stack};
 
 struct MockRuntime;
+
+static STACK: OnceLock<Stack<MockRuntime>> = OnceLock::new();
 
 #[derive(Debug, Default)]
 struct TestMutex<T>(Mutex<T>);
@@ -33,6 +35,10 @@ static SHUTDOWN_CALLS: AtomicUsize = AtomicUsize::new(0);
 impl Platform for MockRuntime {
     type Error = core::convert::Infallible;
     type Mutex<T: Send> = TestMutex<T>;
+
+    fn stack() -> &'static Stack<Self> {
+        STACK.get_or_init(Stack::new)
+    }
 
     fn init() -> Result<(), <Self as Platform>::Error> {
         INIT_CALLS.fetch_add(1, Ordering::SeqCst);

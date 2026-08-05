@@ -1,10 +1,6 @@
-use std::{
-    sync::{Arc, Mutex},
-    thread,
-    time::Duration,
-};
+use std::{thread, time::Duration};
 
-use linux::{EtherTapDevice, LinuxPlatform, ether_tap_irq, should_terminate};
+use linux::{EtherTapDevice, LinuxPlatform, should_terminate, stack};
 use microps::{DeviceKind, DeviceMeta, Irq, IrqLine, Stack, debug, error, protocol::Ipv4Interface};
 
 // These values must match scripts/linux_tap_up.sh:
@@ -16,15 +12,13 @@ const TAP_NETMASK: [u8; 4] = [255, 255, 255, 0];
 fn main() {
     Stack::<LinuxPlatform>::init().unwrap();
 
-    let stack = Arc::new(Mutex::new(Stack::<LinuxPlatform>::new()));
+    let stack = stack();
     let device_key;
     let interface_key;
     {
-        let stack = &mut *stack.lock().expect("stack mutex poisoned");
-        let input_queue = stack.input_queue().clone();
         device_key = stack.register_device(
             DeviceMeta::new(TAP_NAME, DeviceKind::Ethernet, 1500),
-            EtherTapDevice::new(TAP_NAME, input_queue),
+            EtherTapDevice::new(TAP_NAME),
         );
         interface_key = stack
             .interfaces
@@ -35,18 +29,17 @@ fn main() {
             .expect("interface attaches to TAP device");
     }
 
-    let receive_stack = Arc::clone(&stack);
     <LinuxPlatform as Irq>::register(
-        ether_tap_irq(),
+        IrqLine::DeviceInput,
         Box::new(move |_| {
-            // The device input handler locks the stack. Raise SoftInput only
-            // after releasing that lock, otherwise its handler deadlocks on
-            // the same mutex.
+            // Release the device registry lock before raising SoftInput.
             let result = {
-                let mut stack = receive_stack.lock().expect("stack mutex poisoned");
-                stack
+                let mut devices = stack
                     .devices
-                    .device_mut(device_key)
+                    .acquire()
+                    .expect("device registry lock is infallible");
+                devices
+                    .get_mut(device_key)
                     .ok_or(microps::StackError::DeviceNotFound)
                     .and_then(|device| device.input().map_err(microps::StackError::Device))
             };
@@ -61,24 +54,19 @@ fn main() {
     )
     .unwrap();
 
-    let input_stack = Arc::clone(&stack);
     <LinuxPlatform as Irq>::register(
         IrqLine::SoftInput,
         Box::new(move |_| {
-            // This handler owns the Stack lock while draining the queue. Any
-            // code that raises SoftInput must do so after releasing this lock.
-            if let Err(error_value) = input_stack
-                .lock()
-                .expect("stack mutex poisoned")
-                .soft_input()
-            {
+            // This handler locks only the resources it needs while draining
+            // the queue.
+            if let Err(error_value) = stack.soft_input() {
                 error!("input processing failure: {error_value}");
             }
         }),
     )
     .unwrap();
 
-    if let Err(error_value) = stack.lock().expect("stack mutex poisoned").open_all() {
+    if let Err(error_value) = stack.open_all() {
         error!("device initialization failure: {error_value}");
         Stack::<LinuxPlatform>::shutdown();
         return;
@@ -90,6 +78,6 @@ fn main() {
     }
 
     debug!("terminate");
-    stack.lock().expect("stack mutex poisoned").close_all();
+    stack.close_all();
     Stack::<LinuxPlatform>::shutdown();
 }
