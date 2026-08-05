@@ -1,9 +1,9 @@
 use thiserror::Error;
 
 use crate::{
-    AddressFamily, Device, DeviceBackend, DeviceError, DeviceKey, DeviceMeta, DeviceRegistry,
-    InputQueue, InterfaceError, InterfaceRegistry, Platform, debug, debugdump, error, info,
-    protocol::{self, ArpCache},
+    AddressFamily, DeviceError, DeviceRegistry, InputQueue, InterfaceError, InterfaceRegistry,
+    Platform, debug, debugdump, error, info,
+    protocol::{self, ArpCache, Ipv4RoutingTable},
 };
 
 /// Network stack state and ownership root for devices and interfaces.
@@ -13,6 +13,7 @@ pub struct Stack<P: Platform> {
     pub interfaces: InterfaceRegistry<P>,
     pub input_queue: InputQueue<P>,
     pub arp_cache: ArpCache<P>,
+    pub ipv4_routes: Ipv4RoutingTable<P>,
 }
 
 #[derive(Debug, Error)]
@@ -34,15 +35,8 @@ impl<P: Platform + 'static> Stack<P> {
             interfaces: InterfaceRegistry::default(),
             input_queue: alloc::sync::Arc::default(),
             arp_cache: ArpCache::new(),
+            ipv4_routes: Ipv4RoutingTable::default(),
         }
-    }
-
-    pub fn register_device(
-        &self,
-        meta: DeviceMeta,
-        backend: impl DeviceBackend<P> + 'static,
-    ) -> DeviceKey {
-        self.devices.register(Device::new(meta, backend))
     }
 
     pub fn open_all(&self) -> Result<(), StackError> {

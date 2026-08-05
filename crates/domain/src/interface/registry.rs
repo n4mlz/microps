@@ -4,7 +4,7 @@ use core::any::Any;
 use slotmap::{SlotMap, new_key_type};
 
 use super::{AddressFamily, InterfaceError, NetInterface};
-use crate::{DeviceKey, Lock, Platform};
+use crate::{DeviceKey, Lock, Platform, protocol::Ipv4Interface};
 
 new_key_type! {
     /// Stable key for an interface owned by an [`InterfaceRegistry`].
@@ -50,12 +50,21 @@ impl<P: Platform + 'static> InterfaceRegistry<P> {
     }
 
     pub fn attach(&self, interface: InterfaceKey, device: DeviceKey) -> Result<(), InterfaceError> {
-        self.interfaces
+        let result = self
+            .interfaces
             .acquire()
             .expect("interface registry lock is infallible")
             .get_mut(interface)
             .ok_or(InterfaceError::NotFound)?
-            .attach(device)
+            .attach(device);
+        if result.is_ok()
+            && let Some(interface_value) = self.interface_as::<Ipv4Interface>(interface)
+        {
+            P::stack()
+                .ipv4_routes
+                .add_interface_route(interface, interface_value);
+        }
+        result
     }
 
     pub fn device(&self, interface: InterfaceKey) -> Option<DeviceKey> {

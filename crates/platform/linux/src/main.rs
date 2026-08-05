@@ -16,7 +16,7 @@ fn main() {
     let device_key;
     let interface_key;
     {
-        device_key = stack.register_device(
+        device_key = stack.devices.register_device(
             DeviceMeta::new(TAP_NAME, DeviceKind::Ethernet, 1500),
             EtherTapDevice::new(TAP_NAME),
         );
@@ -27,6 +27,9 @@ fn main() {
             .interfaces
             .attach(interface_key, device_key)
             .expect("interface attaches to TAP device");
+        stack
+            .ipv4_routes
+            .set_default_gateway(interface_key, [10, 0, 0, 1].into());
     }
 
     <LinuxPlatform as Irq>::register(

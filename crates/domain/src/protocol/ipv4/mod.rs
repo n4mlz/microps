@@ -2,11 +2,13 @@ mod addr;
 mod header;
 mod interface;
 mod packet;
+mod route;
 
 pub use addr::*;
 pub use header::*;
 pub use interface::*;
 pub use packet::*;
+pub use route::*;
 
 use crate::{
     NetInterface, Platform, Random, debug, error,
@@ -53,26 +55,39 @@ impl Ipv4 {
         src: Ipv4Addr,
         dest: Ipv4Addr,
     ) -> Result<usize, Ipv4OutputError<R::Error>> {
-        if src != interface.unicast() {
+        if src == Ipv4Addr::ANY && dest == Ipv4Addr::BROADCAST {
+            return Err(Ipv4OutputError::SourceRequiredForBroadcast);
+        }
+        let route = P::stack()
+            .ipv4_routes
+            .lookup(dest)
+            .ok_or(Ipv4OutputError::DestinationUnreachable)?;
+        let routed_interface = P::stack()
+            .interfaces
+            .interface_as::<Ipv4Interface>(route.interface())
+            .ok_or(Ipv4OutputError::DestinationUnreachable)?;
+        if routed_interface.device() != interface.device() {
             return Err(Ipv4OutputError::SourceNotOwned);
         }
-        let same_network = src
-            .as_bytes()
-            .iter()
-            .zip(dest.as_bytes())
-            .zip(interface.netmask().as_bytes())
-            .all(|((src, dest), netmask)| src & netmask == dest & netmask);
-        if dest != interface.broadcast() && dest != Ipv4Addr::BROADCAST && !same_network {
-            return Err(Ipv4OutputError::DestinationUnreachable);
+        if src != Ipv4Addr::ANY && src != routed_interface.unicast() {
+            return Err(Ipv4OutputError::SourceNotOwned);
         }
         let id = R::random16().map_err(Ipv4OutputError::Random)?;
         let packet = Ipv4Packet::build(protocol, data, id, src, dest)?;
-        let dest_hardware = if interface.hardware_address::<P>().is_some() {
+        let dest_hardware = if routed_interface.hardware_address::<P>().is_some() {
             Some(
-                if dest == interface.broadcast() || dest == Ipv4Addr::BROADCAST {
+                if dest == routed_interface.broadcast() || dest == Ipv4Addr::BROADCAST {
                     MacAddr::BROADCAST
                 } else {
-                    Arp::resolve::<P>(interface, dest).map_err(|error| match error {
+                    Arp::resolve::<P>(
+                        &routed_interface,
+                        if route.nexthop() == Ipv4Addr::ANY {
+                            dest
+                        } else {
+                            route.nexthop()
+                        },
+                    )
+                    .map_err(|error| match error {
                         crate::protocol::ArpResolveError::Incomplete => {
                             Ipv4OutputError::ArpIncomplete
                         }
@@ -87,7 +102,7 @@ impl Ipv4 {
         };
         let dest_bytes = dest_hardware.map(|address| address.bytes());
         <Ipv4Interface as NetInterface<P>>::output_raw(
-            interface,
+            &routed_interface,
             EtherType::Ipv4 as u16,
             &packet,
             dest_bytes.as_ref().map(|bytes| &bytes[..]),

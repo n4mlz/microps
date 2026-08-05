@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use slotmap::{SlotMap, new_key_type};
 
-use crate::{Device, DeviceError, DeviceKind, Lock, Platform};
+use crate::{Device, DeviceBackend, DeviceError, DeviceKind, DeviceMeta, Lock, Platform};
 
 new_key_type! {
     /// Stable key for a device owned by a [`DeviceRegistry`].
@@ -26,6 +26,14 @@ impl<P: Platform> Default for DeviceRegistry<P> {
 }
 
 impl<P: Platform> DeviceRegistry<P> {
+    pub fn register_device(
+        &self,
+        meta: DeviceMeta,
+        backend: impl DeviceBackend<P> + 'static,
+    ) -> DeviceKey {
+        self.register(Device::new(meta, backend))
+    }
+
     pub fn register(&self, device: Device<P>) -> DeviceKey {
         let mut devices = self
             .devices

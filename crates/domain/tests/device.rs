@@ -146,7 +146,7 @@ fn device_enforces_state_and_mtu() {
 #[test]
 fn loopback_transfers_output_to_the_input_queue() {
     let stack = TestPlatform::stack();
-    let device = stack.register_device(
+    let device = stack.devices.register_device(
         DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
         LoopbackDevice::new(),
     );
