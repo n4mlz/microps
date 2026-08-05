@@ -47,14 +47,6 @@ impl<P: Platform> DeviceRegistry<P> {
             .contains_key(key)
     }
 
-    pub fn hardware_address(&self, key: DeviceKey) -> Option<crate::protocol::MacAddr> {
-        self.devices
-            .acquire()
-            .expect("device registry lock is infallible")
-            .get(key)
-            .and_then(Device::hardware_address)
-    }
-
     pub fn keys(&self) -> Vec<DeviceKey> {
         self.devices
             .acquire()
@@ -70,6 +62,9 @@ impl<P: Platform> DeviceRegistry<P> {
         data: &[u8],
         destination: Option<&[u8]>,
     ) -> Result<(), DeviceError> {
+        // Output would semantically belong to Device, but it is kept here because
+        // loopback output must also raise the stack's soft-input IRQ. The IRQ
+        // must be raised after releasing the device registry lock.
         let loopback = {
             let mut devices = self
                 .devices

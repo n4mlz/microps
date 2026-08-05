@@ -55,8 +55,13 @@ impl Ipv4Interface {
     }
 
     pub fn hardware_address<P: Platform + 'static>(&self) -> Option<crate::protocol::MacAddr> {
-        self.device
-            .and_then(|device| P::stack().devices.hardware_address(device))
+        let device = self.device?;
+        P::stack()
+            .devices
+            .acquire()
+            .expect("device registry lock is infallible")
+            .get(device)
+            .and_then(crate::Device::hardware_address)
     }
 }
 
