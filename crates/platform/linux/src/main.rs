@@ -1,6 +1,6 @@
 use std::{thread, time::Duration};
 
-use linux::{EtherTapDevice, LinuxPlatform, ether_tap_irq, should_terminate, stack};
+use linux::{EtherTapDevice, LinuxPlatform, should_terminate, stack};
 use microps::{DeviceKind, DeviceMeta, Irq, IrqLine, Stack, debug, error, protocol::Ipv4Interface};
 
 // These values must match scripts/linux_tap_up.sh:
@@ -30,7 +30,7 @@ fn main() {
     }
 
     <LinuxPlatform as Irq>::register(
-        ether_tap_irq(),
+        IrqLine::DeviceInput,
         Box::new(move |_| {
             // Release the device registry lock before raising SoftInput.
             let result = {

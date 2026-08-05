@@ -9,10 +9,6 @@ use crate::os::signal_number;
 
 const READ_BUFFER_LEN: usize = FRAME_LEN_MAX;
 
-pub const fn irq() -> IrqLine {
-    IrqLine::DeviceInput
-}
-
 pub struct EtherTapDevice {
     name: String,
     address: MacAddr,
@@ -69,7 +65,7 @@ impl<P: Platform + 'static> DeviceBackend<P> for EtherTapDevice {
                 .map_err(|error| backend_error(error.to_string()))?,
         );
         info!("dev={}, addr={}", self.name, self.address);
-        tap.configure_async(signal_number(irq()))
+        tap.configure_async(signal_number(IrqLine::DeviceInput))
             .map_err(|error| backend_error(error.to_string()))?;
         self.tap = Some(tap);
         Ok(())

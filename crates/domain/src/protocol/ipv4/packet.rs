@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use getset::CopyGetters;
 
-use super::{HEADER_LEN, Ipv4Error, Ipv4Header};
+use super::{IP_HEADER_LEN, Ipv4Error, Ipv4Header};
 
 /// An IPv4 packet with parsed header fields and a borrowed payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, CopyGetters)]
@@ -15,7 +15,7 @@ pub struct Ipv4Packet<'a> {
 
 impl Ipv4Packet<'_> {
     pub fn packet_len(&self) -> usize {
-        HEADER_LEN + self.payload.len()
+        IP_HEADER_LEN + self.payload.len()
     }
 
     pub fn build(
@@ -25,7 +25,7 @@ impl Ipv4Packet<'_> {
         source: super::Ipv4Addr,
         destination: super::Ipv4Addr,
     ) -> Result<Vec<u8>, Ipv4Error> {
-        let total_len = HEADER_LEN
+        let total_len = IP_HEADER_LEN
             .checked_add(payload.len())
             .ok_or(Ipv4Error::PayloadTooLarge { len: payload.len() })?;
         if total_len > usize::from(u16::MAX) {
@@ -46,7 +46,7 @@ impl<'a> TryFrom<&'a [u8]> for Ipv4Packet<'a> {
     fn try_from(data: &'a [u8]) -> Result<Self, Self::Error> {
         let header = Ipv4Header::try_from(data)?;
         let total_len = usize::from(u16::from_be_bytes([data[2], data[3]]));
-        if total_len < HEADER_LEN {
+        if total_len < IP_HEADER_LEN {
             return Err(Ipv4Error::TotalLengthTooSmall { total_len });
         }
         if data.len() < total_len {
@@ -61,7 +61,7 @@ impl<'a> TryFrom<&'a [u8]> for Ipv4Packet<'a> {
 
         Ok(Self {
             header,
-            payload: &data[HEADER_LEN..total_len],
+            payload: &data[IP_HEADER_LEN..total_len],
         })
     }
 }

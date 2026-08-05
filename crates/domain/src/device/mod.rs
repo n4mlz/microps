@@ -4,11 +4,11 @@ mod registry;
 
 use alloc::{boxed::Box, string::String};
 
-pub use backend::DeviceBackend;
+pub use backend::*;
 use bitflags::bitflags;
 use getset::{CopyGetters, Getters};
-pub use queue::{InputQueue, InputQueueInner, ReceivedFrame};
-pub use registry::{DeviceKey, DeviceRegistry};
+pub use queue::*;
+pub use registry::*;
 use thiserror::Error;
 
 use crate::Platform;

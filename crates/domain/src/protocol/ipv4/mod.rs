@@ -4,11 +4,11 @@ mod icmp;
 mod interface;
 mod packet;
 
-pub use addr::{Ipv4Addr, Ipv4AddrParseError};
-pub use header::{Ipv4Error, Ipv4Header};
-pub use icmp::{IcmpError, IcmpHeader, IcmpPacket, IcmpType, UnknownIcmpType};
-pub use interface::{Ipv4Interface, Ipv4OutputError};
-pub use packet::Ipv4Packet;
+pub use addr::*;
+pub use header::*;
+pub use icmp::*;
+pub use interface::*;
+pub use packet::*;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -38,4 +38,4 @@ pub struct UnknownIpv4Protocol(pub u8);
 const VERSION: u8 = 4;
 
 /// Length of the IPv4 base header in bytes; options are not supported yet.
-const HEADER_LEN: usize = 20;
+const IP_HEADER_LEN: usize = 20;
