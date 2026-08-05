@@ -4,7 +4,6 @@ use thiserror::Error;
 use super::{IP_HEADER_LEN, Ipv4Addr, VERSION};
 use crate::protocol::checksum16;
 
-/// The fixed-size IPv4 base header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, CopyGetters)]
 pub struct Ipv4Header {
     #[getset(get_copy = "pub")]

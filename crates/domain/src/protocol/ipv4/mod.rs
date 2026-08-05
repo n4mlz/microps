@@ -9,8 +9,8 @@ pub use interface::*;
 pub use packet::*;
 
 use crate::{
-    InterfaceOutputError, Platform, Random, debug, error,
-    protocol::{EtherType, Icmp, IcmpType},
+    NetInterface, Platform, Random, debug, error,
+    protocol::{EtherType, Icmp, IcmpDestinationUnreachableCode, IcmpType},
 };
 
 #[repr(u8)]
@@ -37,7 +37,6 @@ impl TryFrom<u8> for Ipv4Protocol {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnknownIpv4Protocol(pub u8);
 
-/// IPv4 version carried in the high four bits of the first header byte.
 const VERSION: u8 = 4;
 
 /// Length of the IPv4 base header in bytes; options are not supported yet.
@@ -71,13 +70,12 @@ impl Ipv4 {
         }
         let id = R::random16().map_err(Ipv4OutputError::Random)?;
         let packet = Ipv4Packet::build(protocol, data, id, source, destination)?;
-        let device = interface
-            .device()
-            .ok_or(InterfaceOutputError::NotAttached)?;
-        P::stack()
-            .devices
-            .output(device, EtherType::Ipv4 as u16, &packet, None)
-            .map_err(InterfaceOutputError::Device)?;
+        <Ipv4Interface as NetInterface<P>>::output_raw(
+            interface,
+            EtherType::Ipv4 as u16,
+            &packet,
+            None,
+        )?;
         Ok(packet.len())
     }
 
@@ -119,34 +117,17 @@ impl Ipv4 {
         debug!("dst: {}", header.destination());
 
         if let Ok(Ipv4Protocol::Icmp) = Ipv4Protocol::try_from(header.protocol()) {
-            match Icmp::input(packet) {
-                Ok(packet) if packet.header().type_value() == IcmpType::Echo as u8 => {
-                    let message = Icmp::output(
-                        IcmpType::EchoReply as u8,
-                        packet.header().code(),
-                        packet.header().dependent(),
-                        packet.payload(),
-                    );
-                    if let Err(error) = Self::output::<P, P>(
-                        interface,
-                        Ipv4Protocol::Icmp as u8,
-                        &message,
-                        interface.unicast(),
-                        packet.source(),
-                    ) {
-                        error!("{error}");
-                    }
-                }
-                Ok(_) => {}
-                Err(error) => error!("{error}"),
+            if let Err(error) = Icmp::input::<P, P>(packet, interface) {
+                error!("{error}");
             }
         } else if data.len() >= IP_HEADER_LEN + crate::protocol::ICMP_HEADER_LEN {
             let offending = &data[..IP_HEADER_LEN + crate::protocol::ICMP_HEADER_LEN];
-            let message = Icmp::output(IcmpType::DestinationUnreachable as u8, 2, 0, offending);
-            if let Err(error) = Self::output::<P, P>(
+            if let Err(error) = Icmp::output::<P, P>(
                 interface,
-                Ipv4Protocol::Icmp as u8,
-                &message,
+                IcmpType::DestinationUnreachable as u8,
+                IcmpDestinationUnreachableCode::ProtocolUnreachable as u8,
+                Icmp::UNUSED,
+                offending,
                 interface.unicast(),
                 header.source(),
             ) {

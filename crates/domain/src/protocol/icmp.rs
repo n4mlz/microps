@@ -5,17 +5,21 @@ use getset::{CopyGetters, Getters};
 use thiserror::Error;
 
 use crate::{
-    debug, debugdump,
+    Platform, Random, debug, debugdump,
     protocol::{
         checksum16,
-        ipv4::{Ipv4Addr, Ipv4Packet},
+        ipv4::{Ipv4, Ipv4Addr, Ipv4Interface, Ipv4OutputError, Ipv4Packet, Ipv4Protocol},
     },
 };
 
 pub const ICMP_HEADER_LEN: usize = 8;
 
-/// ICMP protocol operations that do not require an instance.
 pub struct Icmp;
+
+impl Icmp {
+    /// The unused field value for ICMP messages that do not define it.
+    pub const UNUSED: u32 = 0;
+}
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -71,6 +75,18 @@ impl fmt::Display for IcmpType {
         };
         f.write_str(name)
     }
+}
+
+/// Codes defined for ICMP Destination Unreachable messages.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IcmpDestinationUnreachableCode {
+    NetworkUnreachable = 0,
+    HostUnreachable = 1,
+    ProtocolUnreachable = 2,
+    PortUnreachable = 3,
+    FragmentationNeeded = 4,
+    SourceRouteFailed = 5,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,17 +158,34 @@ impl<'a> IcmpPacket<'a> {
 }
 
 impl Icmp {
-    pub fn output(type_value: u8, code: u8, dependent: u32, payload: &[u8]) -> Vec<u8> {
+    pub fn output<P: Platform + 'static, R: Random>(
+        interface: &Ipv4Interface,
+        type_value: u8,
+        code: u8,
+        dependent: u32,
+        payload: &[u8],
+        source: Ipv4Addr,
+        destination: Ipv4Addr,
+    ) -> Result<usize, Ipv4OutputError<R::Error>> {
         let mut data = Vec::with_capacity(ICMP_HEADER_LEN + payload.len());
         data.extend_from_slice(&[type_value, code, 0, 0]);
         data.extend_from_slice(&dependent.to_be_bytes());
         data.extend_from_slice(payload);
         let checksum = checksum16(&data);
         data[2..4].copy_from_slice(&checksum.to_be_bytes());
-        data
+        Ipv4::output::<P, R>(
+            interface,
+            Ipv4Protocol::Icmp as u8,
+            &data,
+            source,
+            destination,
+        )
     }
 
-    pub fn input<'a>(packet: Ipv4Packet<'a>) -> Result<IcmpPacket<'a>, IcmpError> {
+    pub fn input<P: Platform + 'static, R: Random>(
+        packet: Ipv4Packet<'_>,
+        interface: &Ipv4Interface,
+    ) -> Result<(), IcmpError> {
         let packet = IcmpPacket::from_ipv4(packet)?;
         debug!(
             "{} => {}, len={}",
@@ -175,6 +208,19 @@ impl Icmp {
             _ => debug!("dep: 0x{:08x}", packet.header.dependent()),
         }
         debugdump(packet.data);
-        Ok(packet)
+        if packet.header.type_value() == IcmpType::Echo as u8 {
+            if let Err(error) = Self::output::<P, R>(
+                interface,
+                IcmpType::EchoReply as u8,
+                packet.header.code(),
+                packet.header.dependent(),
+                packet.payload,
+                interface.unicast(),
+                packet.source,
+            ) {
+                crate::error!("{error}");
+            }
+        }
+        Ok(())
     }
 }
