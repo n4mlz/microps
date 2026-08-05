@@ -54,4 +54,3 @@ Rust 側はユーザー権限で既存の TAP device に接続する。
 ```
 
 `linux_tap_up.sh` は Linux host に `10.0.0.1/24` を設定する。microps 側の `10.0.0.2/24` は protocol stack が設定する。これらの値と TAP name は `main.rs` と `linux_tap_up.sh` の間で対応している。
-ARP はまだ実装していないため、ARP request の受信確認だけなら static neighbor の設定は不要である。

@@ -62,6 +62,9 @@ impl<P: Platform> DeviceRegistry<P> {
         data: &[u8],
         destination: Option<&[u8]>,
     ) -> Result<(), DeviceError> {
+        // Output would semantically belong to Device, but it is kept here because
+        // loopback output must also raise the stack's soft-input IRQ. The IRQ
+        // must be raised after releasing the device registry lock.
         let loopback = {
             let mut devices = self
                 .devices

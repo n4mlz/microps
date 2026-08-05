@@ -17,7 +17,7 @@ pub enum AddressFamily {
 pub trait NetInterface<P: Platform + 'static>: core::fmt::Debug + Send {
     fn as_any(&self) -> &dyn Any;
     fn family(&self) -> AddressFamily;
-    fn input(&mut self, data: &[u8]);
+    fn input(&mut self, frame_type: u16, data: &[u8]);
     fn has_address(&self, address: &[u8]) -> bool;
     fn device(&self) -> Option<DeviceKey>;
     fn attach(&mut self, device: DeviceKey) -> Result<(), InterfaceError>;

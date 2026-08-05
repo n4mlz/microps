@@ -1,5 +1,5 @@
 use super::{DeviceError, DeviceKey};
-use crate::Platform;
+use crate::{Platform, protocol::MacAddr};
 
 pub trait DeviceBackend<P: Platform>: Send {
     fn open(&mut self) -> Result<(), DeviceError> {
@@ -11,6 +11,10 @@ pub trait DeviceBackend<P: Platform>: Send {
     }
 
     fn set_device_key(&mut self, _device: DeviceKey) {}
+
+    fn hardware_address(&self) -> Option<MacAddr> {
+        None
+    }
 
     fn output(
         &mut self,

@@ -115,6 +115,10 @@ impl<P: Platform> Device<P> {
             state: DeviceState::new(),
         }
     }
+
+    pub fn hardware_address(&self) -> Option<crate::protocol::MacAddr> {
+        self.backend.hardware_address()
+    }
 }
 
 impl<P: Platform> Device<P> {

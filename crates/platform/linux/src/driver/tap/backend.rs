@@ -58,6 +58,10 @@ impl<P: Platform + 'static> DeviceBackend<P> for EtherTapDevice {
         self.device_key = Some(device);
     }
 
+    fn hardware_address(&self) -> Option<MacAddr> {
+        self.tap.as_ref().map(|_| self.address)
+    }
+
     fn open(&mut self) -> Result<(), DeviceError> {
         let tap = Tap::open(&self.name).map_err(|error| backend_error(error.to_string()))?;
         self.address = MacAddr::from(

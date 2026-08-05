@@ -1,6 +1,7 @@
 use microps::protocol::{
-    EtherType, EthernetError, EthernetFrame, IcmpError, IcmpHeader, IcmpPacket, IcmpType, Ipv4Addr,
-    Ipv4Error, Ipv4Header, Ipv4Interface, Ipv4Packet, Ipv4Protocol, MacAddr,
+    ArpError, ArpOperation, ArpPacket, EtherType, EthernetError, EthernetFrame, IcmpError,
+    IcmpHeader, IcmpPacket, IcmpType, Ipv4Addr, Ipv4Error, Ipv4Header, Ipv4Interface, Ipv4Packet,
+    Ipv4Protocol, MacAddr,
 };
 
 #[test]
@@ -184,6 +185,57 @@ fn icmp_header_rejects_short_and_corrupt_messages() {
     assert_eq!(
         IcmpHeader::try_from(&[0x08, 0x00, 0, 0, 0, 1, 0, 1][..]),
         Err(IcmpError::InvalidChecksum)
+    );
+}
+
+#[test]
+fn arp_packet_round_trips_ethernet_ipv4_fields() {
+    let packet = ArpPacket::build(
+        ArpOperation::Request,
+        MacAddr::from([2, 0, 0, 0, 0, 1]),
+        Ipv4Addr::from([192, 0, 2, 1]),
+        MacAddr::ANY,
+        Ipv4Addr::from([192, 0, 2, 2]),
+    );
+    let packet = ArpPacket::try_from(&packet[..]).expect("ARP packet parses");
+
+    assert_eq!(packet.header().hardware_type(), 1);
+    assert_eq!(packet.header().protocol_type(), EtherType::Ipv4 as u16);
+    assert_eq!(packet.header().hardware_len(), 6);
+    assert_eq!(packet.header().protocol_len(), 4);
+    assert_eq!(packet.header().operation(), ArpOperation::Request as u16);
+    assert_eq!(packet.sender_hardware(), MacAddr::from([2, 0, 0, 0, 0, 1]));
+    assert_eq!(packet.sender_protocol(), Ipv4Addr::from([192, 0, 2, 1]));
+    assert_eq!(packet.target_hardware(), MacAddr::ANY);
+    assert_eq!(packet.target_protocol(), Ipv4Addr::from([192, 0, 2, 2]));
+}
+
+#[test]
+fn arp_packet_rejects_unsupported_address_formats() {
+    let mut packet = ArpPacket::build(
+        ArpOperation::Request,
+        MacAddr::ANY,
+        Ipv4Addr::ANY,
+        MacAddr::ANY,
+        Ipv4Addr::ANY,
+    );
+    packet[4] = 5;
+    assert_eq!(
+        ArpPacket::try_from(&packet[..]),
+        Err(ArpError::UnsupportedHardware {
+            hardware_type: 1,
+            hardware_len: 5,
+        })
+    );
+
+    packet[4] = 6;
+    packet[2..4].copy_from_slice(&0x86ddu16.to_be_bytes());
+    assert_eq!(
+        ArpPacket::try_from(&packet[..]),
+        Err(ArpError::UnsupportedProtocol {
+            protocol_type: 0x86dd,
+            protocol_len: 4,
+        })
     );
 }
 

@@ -53,6 +53,16 @@ impl Ipv4Interface {
     pub fn device(&self) -> Option<DeviceKey> {
         self.device
     }
+
+    pub fn hardware_address<P: Platform + 'static>(&self) -> Option<crate::protocol::MacAddr> {
+        let device = self.device?;
+        P::stack()
+            .devices
+            .acquire()
+            .expect("device registry lock is infallible")
+            .get(device)
+            .and_then(crate::Device::hardware_address)
+    }
 }
 
 #[derive(Debug, Error)]
@@ -78,8 +88,18 @@ impl<P: Platform + 'static> NetInterface<P> for Ipv4Interface {
         AddressFamily::Ipv4
     }
 
-    fn input(&mut self, data: &[u8]) {
-        Ipv4::input::<P>(data, self)
+    fn input(&mut self, frame_type: u16, data: &[u8]) {
+        match frame_type {
+            value if value == crate::protocol::EtherType::Ipv4 as u16 => {
+                Ipv4::input::<P>(data, self)
+            }
+            value if value == crate::protocol::EtherType::Arp as u16 => {
+                if let Err(error) = crate::protocol::Arp::input::<P>(data, self) {
+                    crate::error!("{error}");
+                }
+            }
+            _ => {}
+        }
     }
 
     fn has_address(&self, address: &[u8]) -> bool {

@@ -66,6 +66,7 @@ impl<P: Platform + 'static> Stack<P> {
             debugdump(frame.data());
             let family = match frame.frame_type() {
                 type_value if type_value == protocol::EtherType::Ipv4 as u16 => AddressFamily::Ipv4,
+                type_value if type_value == protocol::EtherType::Arp as u16 => AddressFamily::Ipv4,
                 _ => {
                     continue;
                 }
@@ -86,7 +87,7 @@ impl<P: Platform + 'static> Stack<P> {
             let Some(interface) = interfaces.get_mut(interface_key) else {
                 return Err(StackError::InterfaceNotFound);
             };
-            interface.input(frame.data());
+            interface.input(frame.frame_type(), frame.data());
         }
         Ok(())
     }

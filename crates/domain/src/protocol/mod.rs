@@ -1,7 +1,9 @@
+mod arp;
 mod ethernet;
 mod icmp;
 mod ipv4;
 
+pub use arp::*;
 pub use ethernet::*;
 pub use icmp::*;
 pub use ipv4::*;
