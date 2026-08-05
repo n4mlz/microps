@@ -17,8 +17,24 @@ pub const PACKET_LEN: usize = 28;
 pub struct Arp;
 
 impl Arp {
-    pub fn resolve<P: Platform + 'static>(protocol: Ipv4Addr) -> Option<MacAddr> {
-        P::stack().arp_cache.resolve(protocol, P::now())
+    pub fn resolve<P: Platform + 'static>(
+        interface: &Ipv4Interface,
+        protocol: Ipv4Addr,
+    ) -> Result<MacAddr, ArpResolveError> {
+        let now = P::now();
+        if let Some(hardware) = P::stack().arp_cache.resolve(protocol, now) {
+            return Ok(hardware);
+        }
+
+        P::stack().arp_cache.insert_incomplete(protocol, now);
+        Self::output::<P>(
+            interface,
+            ArpOperation::Request,
+            MacAddr::BROADCAST,
+            protocol,
+        )
+        .map_err(ArpResolveError::Request)?;
+        Err(ArpResolveError::Incomplete)
     }
 
     pub fn output<P: Platform + 'static>(
@@ -85,4 +101,12 @@ pub enum ArpOutputError {
     HardwareAddressUnavailable,
     #[error("interface output failed: {0}")]
     Interface(#[from] crate::InterfaceOutputError),
+}
+
+#[derive(Debug, Error)]
+pub enum ArpResolveError {
+    #[error("ARP resolution is incomplete")]
+    Incomplete,
+    #[error("ARP request failed: {0}")]
+    Request(#[from] ArpOutputError),
 }

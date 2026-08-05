@@ -31,12 +31,12 @@ fn loopback_device_runs_through_the_stack() {
         .expect("interface attaches to loopback device");
 
     stack.open_all().expect("stack opens devices");
-    let source = Ipv4Addr::from([127, 0, 0, 1]);
+    let src = Ipv4Addr::from([127, 0, 0, 1]);
     stack
         .interfaces
         .interface_as::<Ipv4Interface>(interface_key)
         .expect("interface exists")
-        .output::<LinuxPlatform, LinuxPlatform>(1, &TEST_DATA[20..], source, source)
+        .output::<LinuxPlatform, LinuxPlatform>(1, &TEST_DATA[20..], src, src)
         .expect("loopback output succeeds");
     stack.close_all();
     Stack::<LinuxPlatform>::shutdown();

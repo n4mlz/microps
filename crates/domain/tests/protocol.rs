@@ -21,14 +21,14 @@ fn mac_address_parses_and_formats_colon_hex() {
 
 #[test]
 fn ethernet_frame_round_trips_header_and_payload() {
-    let source = MacAddr::from([2, 0, 0, 0, 0, 1]);
-    let destination = MacAddr::BROADCAST;
-    let bytes = EthernetFrame::build(source, destination, EtherType::Ipv4, &[0xaa, 0xbb])
-        .expect("frame builds");
+    let src = MacAddr::from([2, 0, 0, 0, 0, 1]);
+    let dest = MacAddr::BROADCAST;
+    let bytes =
+        EthernetFrame::build(src, dest, EtherType::Ipv4, &[0xaa, 0xbb]).expect("frame builds");
     let frame = EthernetFrame::try_from(&bytes[..]).expect("frame parses");
 
-    assert_eq!(frame.header().source(), source);
-    assert_eq!(frame.header().destination(), destination);
+    assert_eq!(frame.header().src(), src);
+    assert_eq!(frame.header().dest(), dest);
     assert_eq!(frame.header().ether_type(), EtherType::Ipv4 as u16);
     assert_eq!(frame.payload(), &[0xaa, 0xbb]);
 }
@@ -95,8 +95,8 @@ fn ipv4_packet_parses_a_valid_header() {
     assert_eq!(header.ttl(), 64);
     assert_eq!(header.protocol(), 17);
     assert_eq!(header.checksum(), Some(0x7c6e));
-    assert_eq!(header.source(), Ipv4Addr::from([192, 0, 2, 1]));
-    assert_eq!(header.destination(), Ipv4Addr::from([198, 51, 100, 2]));
+    assert_eq!(header.src(), Ipv4Addr::from([192, 0, 2, 1]));
+    assert_eq!(header.dest(), Ipv4Addr::from([198, 51, 100, 2]));
 
     let bytes = header.to_bytes(20);
     assert_eq!(bytes, valid_ipv4_header());
@@ -166,16 +166,16 @@ fn icmp_packet_preserves_ipv4_addresses_and_payload() {
         Ipv4Protocol::Icmp as u8,
         &[0x08, 0x00, 0x4d, 0x42, 0x00, 0x01, 0x00, 0x01, 0xaa, 0xbb],
         0,
-        header.source(),
-        header.destination(),
+        header.src(),
+        header.dest(),
     )
     .expect("packet builds");
     let packet =
         IcmpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4_packet[..]).expect("packet parses"))
             .expect("ICMP packet parses");
 
-    assert_eq!(packet.source(), Ipv4Addr::from([192, 0, 2, 1]));
-    assert_eq!(packet.destination(), Ipv4Addr::from([192, 0, 2, 2]));
+    assert_eq!(packet.src(), Ipv4Addr::from([192, 0, 2, 1]));
+    assert_eq!(packet.dest(), Ipv4Addr::from([192, 0, 2, 2]));
     assert_eq!(packet.payload(), &[0xaa, 0xbb]);
 }
 

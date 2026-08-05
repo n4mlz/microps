@@ -36,10 +36,10 @@ impl Ipv4Interface {
         &self,
         protocol: u8,
         data: &[u8],
-        source: Ipv4Addr,
-        destination: Ipv4Addr,
+        src: Ipv4Addr,
+        dest: Ipv4Addr,
     ) -> Result<usize, Ipv4OutputError<R::Error>> {
-        Ipv4::output::<P, R>(self, protocol, data, source, destination)
+        Ipv4::output::<P, R>(self, protocol, data, src, dest)
     }
 
     pub fn accepts(&self, address: &[u8]) -> bool {
@@ -71,6 +71,10 @@ pub enum Ipv4OutputError<E> {
     SourceNotOwned,
     #[error("output destination is not reachable")]
     DestinationUnreachable,
+    #[error("ARP resolution is incomplete")]
+    ArpIncomplete,
+    #[error("ARP request failed: {0}")]
+    Arp(#[from] crate::protocol::ArpOutputError),
     #[error("interface output failed: {0}")]
     Interface(#[from] InterfaceOutputError),
     #[error("packet construction failed: {0}")]
