@@ -7,6 +7,11 @@ pub trait Platform: super::Irq {
     where
         T: Send;
 
+    /// The one stack instance owned by this platform.
+    fn stack() -> &'static crate::Stack<Self>
+    where
+        Self: Sized;
+
     fn init() -> Result<(), <Self as Platform>::Error> {
         Ok(())
     }

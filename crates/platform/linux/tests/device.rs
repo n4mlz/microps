@@ -16,10 +16,10 @@ fn loopback_device_runs_through_the_stack() {
     <LinuxPlatform as Irq>::register(IrqLine::SoftInput, Box::new(|_line| {}))
         .expect("soft IRQ registers");
 
-    let mut stack = Stack::<LinuxPlatform>::new();
+    let stack = linux::stack();
     let device_key = stack.register_device(
         DeviceMeta::new("net0", DeviceKind::Loopback, 65_535),
-        LoopbackDevice::new(stack.input_queue().clone()),
+        LoopbackDevice::new(),
     );
     let interface_key = stack.interfaces.register(Ipv4Interface::new(
         Ipv4Addr::from([127, 0, 0, 1]),
@@ -32,11 +32,11 @@ fn loopback_device_runs_through_the_stack() {
 
     stack.open_all().expect("stack opens devices");
     let source = Ipv4Addr::from([127, 0, 0, 1]);
-    let (interfaces, devices) = (&mut stack.interfaces, &mut stack.devices);
-    interfaces
+    stack
+        .interfaces
         .interface_as::<Ipv4Interface>(interface_key)
         .expect("interface exists")
-        .output::<LinuxPlatform, LinuxPlatform>(devices, 1, &TEST_DATA[20..], source, source)
+        .output::<LinuxPlatform, LinuxPlatform>(1, &TEST_DATA[20..], source, source)
         .expect("loopback output succeeds");
     stack.close_all();
     Stack::<LinuxPlatform>::shutdown();

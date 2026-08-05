@@ -4,7 +4,7 @@ use core::any::Any;
 use slotmap::{SlotMap, new_key_type};
 use thiserror::Error;
 
-use crate::{DeviceError, DeviceKey, DeviceRegistry, Platform};
+use crate::{DeviceError, DeviceKey, Lock, Platform};
 
 new_key_type! {
     /// Stable key for an interface owned by an [`InterfaceRegistry`].
@@ -12,9 +12,6 @@ new_key_type! {
 }
 
 /// Address category understood by an interface.
-///
-/// This is a classification only. It does not identify an interface and does
-/// not impose a one-interface-per-category restriction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AddressFamily {
     Ipv4,
@@ -23,24 +20,16 @@ pub enum AddressFamily {
 
 pub trait NetInterface: core::fmt::Debug + Send {
     fn as_any(&self) -> &dyn Any;
-
     fn family(&self) -> AddressFamily;
-
     fn input(&mut self, data: &[u8]);
-
     fn has_address(&self, address: &[u8]) -> bool;
-
     fn device(&self) -> Option<DeviceKey>;
-
     fn attach(&mut self, device: DeviceKey) -> Result<(), InterfaceError>;
-
     fn detach(&mut self) -> Option<DeviceKey>;
-
     fn accepts(&self, address: &[u8]) -> bool;
 
-    fn output_raw<P: Platform>(
+    fn output_raw<P: Platform + 'static>(
         &self,
-        devices: &mut DeviceRegistry<P>,
         frame_type: u16,
         data: &[u8],
         destination: Option<&[u8]>,
@@ -49,10 +38,9 @@ pub trait NetInterface: core::fmt::Debug + Send {
         Self: Sized,
     {
         let device = self.device().ok_or(InterfaceOutputError::NotAttached)?;
-        devices
-            .device_mut(device)
-            .ok_or(InterfaceOutputError::DeviceNotFound)?
-            .output(frame_type, data, destination)
+        P::stack()
+            .devices
+            .output(device, frame_type, data, destination)
             .map_err(InterfaceOutputError::Device)
     }
 }
@@ -75,52 +63,68 @@ pub enum InterfaceError {
     AlreadyAttached,
 }
 
-#[derive(Debug, Default)]
-pub struct InterfaceRegistry {
-    interfaces: SlotMap<InterfaceKey, Box<dyn NetInterface>>,
+#[derive(Debug)]
+pub struct InterfaceRegistry<P: Platform> {
+    interfaces: P::Mutex<SlotMap<InterfaceKey, Box<dyn NetInterface>>>,
 }
 
-impl InterfaceRegistry {
-    pub fn register(&mut self, interface: impl NetInterface + 'static) -> InterfaceKey {
-        self.interfaces.insert(Box::new(interface))
+type Interfaces = SlotMap<InterfaceKey, Box<dyn NetInterface>>;
+type InterfaceGuard<'a, P> = <<P as Platform>::Mutex<Interfaces> as Lock<Interfaces>>::Guard<'a>;
+type InterfaceLockError<P> = <<P as Platform>::Mutex<Interfaces> as Lock<Interfaces>>::Error;
+
+impl<P: Platform> Default for InterfaceRegistry<P> {
+    fn default() -> Self {
+        Self {
+            interfaces: P::Mutex::new(SlotMap::default()),
+        }
+    }
+}
+
+impl<P: Platform> InterfaceRegistry<P> {
+    pub fn acquire(&self) -> Result<InterfaceGuard<'_, P>, InterfaceLockError<P>> {
+        self.interfaces.acquire()
     }
 
-    pub fn interface(&self, key: InterfaceKey) -> Option<&dyn NetInterface> {
-        self.interfaces.get(key).map(Box::as_ref)
-    }
-
-    pub fn interface_mut(&mut self, key: InterfaceKey) -> Option<&mut (dyn NetInterface + '_)> {
+    pub fn register(&self, interface: impl NetInterface + 'static) -> InterfaceKey {
         self.interfaces
-            .get_mut(key)
-            .map(|interface| &mut **interface as &mut dyn NetInterface)
+            .acquire()
+            .expect("interface registry lock is infallible")
+            .insert(Box::new(interface))
     }
 
-    pub fn interface_as<T: Any>(&self, key: InterfaceKey) -> Option<&T> {
-        self.interface(key)?.as_any().downcast_ref()
+    pub fn interface_as<T: Any + Clone>(&self, key: InterfaceKey) -> Option<T> {
+        self.interfaces
+            .acquire()
+            .expect("interface registry lock is infallible")
+            .get(key)
+            .and_then(|interface| interface.as_any().downcast_ref::<T>().cloned())
     }
 
-    pub fn attach(
-        &mut self,
-        interface: InterfaceKey,
-        device: DeviceKey,
-    ) -> Result<(), InterfaceError> {
-        self.interface_mut(interface)
+    pub fn attach(&self, interface: InterfaceKey, device: DeviceKey) -> Result<(), InterfaceError> {
+        self.interfaces
+            .acquire()
+            .expect("interface registry lock is infallible")
+            .get_mut(interface)
             .ok_or(InterfaceError::NotFound)?
             .attach(device)
     }
 
     pub fn device(&self, interface: InterfaceKey) -> Option<DeviceKey> {
-        self.interface(interface).and_then(NetInterface::device)
+        self.interfaces
+            .acquire()
+            .expect("interface registry lock is infallible")
+            .get(interface)
+            .and_then(|interface| interface.device())
     }
 
-    /// Returns the first matching interface for the book's one-interface
-    /// simplification. Multiple matching interfaces remain valid.
     pub fn first_for_device(
         &self,
         device: DeviceKey,
         family: AddressFamily,
     ) -> Option<InterfaceKey> {
         self.interfaces
+            .acquire()
+            .expect("interface registry lock is infallible")
             .iter()
             .find(|(_, interface)| {
                 interface.device() == Some(device) && interface.family() == family
@@ -128,9 +132,10 @@ impl InterfaceRegistry {
             .map(|(key, _)| key)
     }
 
-    /// Selects the interface that owns an address.
     pub fn select_by_address(&self, address: &[u8]) -> Option<InterfaceKey> {
         self.interfaces
+            .acquire()
+            .expect("interface registry lock is infallible")
             .iter()
             .find(|(_, interface)| interface.has_address(address))
             .map(|(key, _)| key)
