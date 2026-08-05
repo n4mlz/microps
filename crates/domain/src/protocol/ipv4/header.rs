@@ -23,9 +23,9 @@ pub struct Ipv4Header {
     #[getset(get_copy = "pub")]
     checksum: Option<u16>,
     #[getset(get_copy = "pub")]
-    source: Ipv4Addr,
+    src: Ipv4Addr,
     #[getset(get_copy = "pub")]
-    destination: Ipv4Addr,
+    dest: Ipv4Addr,
 }
 
 impl TryFrom<&[u8]> for Ipv4Header {
@@ -61,14 +61,14 @@ impl TryFrom<&[u8]> for Ipv4Header {
             ttl: data[8],
             protocol: data[9],
             checksum: Some(u16::from_be_bytes([data[10], data[11]])),
-            source: Ipv4Addr::new([data[12], data[13], data[14], data[15]]),
-            destination: Ipv4Addr::new([data[16], data[17], data[18], data[19]]),
+            src: Ipv4Addr::new([data[12], data[13], data[14], data[15]]),
+            dest: Ipv4Addr::new([data[16], data[17], data[18], data[19]]),
         })
     }
 }
 
 impl Ipv4Header {
-    pub fn new(protocol: u8, id: u16, source: Ipv4Addr, destination: Ipv4Addr) -> Self {
+    pub fn new(protocol: u8, id: u16, src: Ipv4Addr, dest: Ipv4Addr) -> Self {
         Self {
             version: VERSION,
             tos: 0,
@@ -78,8 +78,8 @@ impl Ipv4Header {
             ttl: 255,
             protocol,
             checksum: None,
-            source,
-            destination,
+            src,
+            dest,
         }
     }
 
@@ -94,8 +94,8 @@ impl Ipv4Header {
         data[8] = self.ttl;
         data[9] = self.protocol;
         data[10..12].copy_from_slice(&self.checksum.unwrap_or(0).to_be_bytes());
-        data[12..16].copy_from_slice(self.source.as_bytes());
-        data[16..20].copy_from_slice(self.destination.as_bytes());
+        data[12..16].copy_from_slice(self.src.as_bytes());
+        data[16..20].copy_from_slice(self.dest.as_bytes());
         if self.checksum.is_none() {
             let checksum = checksum16(&data);
             data[10..12].copy_from_slice(&checksum.to_be_bytes());

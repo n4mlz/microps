@@ -50,32 +50,36 @@ impl Ipv4 {
         interface: &Ipv4Interface,
         protocol: u8,
         data: &[u8],
-        source: Ipv4Addr,
-        destination: Ipv4Addr,
+        src: Ipv4Addr,
+        dest: Ipv4Addr,
     ) -> Result<usize, Ipv4OutputError<R::Error>> {
-        if source != interface.unicast() {
+        if src != interface.unicast() {
             return Err(Ipv4OutputError::SourceNotOwned);
         }
-        let same_network = source
+        let same_network = src
             .as_bytes()
             .iter()
-            .zip(destination.as_bytes())
+            .zip(dest.as_bytes())
             .zip(interface.netmask().as_bytes())
-            .all(|((source, destination), netmask)| source & netmask == destination & netmask);
-        if destination != interface.broadcast()
-            && destination != Ipv4Addr::BROADCAST
-            && !same_network
-        {
+            .all(|((src, dest), netmask)| src & netmask == dest & netmask);
+        if dest != interface.broadcast() && dest != Ipv4Addr::BROADCAST && !same_network {
             return Err(Ipv4OutputError::DestinationUnreachable);
         }
         let id = R::random16().map_err(Ipv4OutputError::Random)?;
-        let packet = Ipv4Packet::build(protocol, data, id, source, destination)?;
+        let packet = Ipv4Packet::build(protocol, data, id, src, dest)?;
         let dest_hardware = if interface.hardware_address::<P>().is_some() {
             Some(
-                if destination == interface.broadcast() || destination == Ipv4Addr::BROADCAST {
+                if dest == interface.broadcast() || dest == Ipv4Addr::BROADCAST {
                     MacAddr::BROADCAST
                 } else {
-                    Arp::resolve::<P>(destination).ok_or(Ipv4OutputError::DestinationUnreachable)?
+                    Arp::resolve::<P>(interface, dest).map_err(|error| match error {
+                        crate::protocol::ArpResolveError::Incomplete => {
+                            Ipv4OutputError::ArpIncomplete
+                        }
+                        crate::protocol::ArpResolveError::Request(error) => {
+                            Ipv4OutputError::Arp(error)
+                        }
+                    })?
                 },
             )
         } else {
@@ -100,7 +104,7 @@ impl Ipv4 {
             }
         };
         let header = packet.header();
-        if !interface.accepts(header.destination().as_bytes()) {
+        if !interface.accepts(header.dest().as_bytes()) {
             return;
         }
 
@@ -125,8 +129,8 @@ impl Ipv4 {
         debug!("ttl: {}", header.ttl());
         debug!("protocol: {}", header.protocol());
         debug!("sum: {:?}", header.checksum());
-        debug!("src: {}", header.source());
-        debug!("dst: {}", header.destination());
+        debug!("src: {}", header.src());
+        debug!("dst: {}", header.dest());
 
         if let Ok(Ipv4Protocol::Icmp) = Ipv4Protocol::try_from(header.protocol()) {
             if let Err(error) = Icmp::input::<P, P>(packet, interface) {
@@ -135,7 +139,7 @@ impl Ipv4 {
         } else if data.len() >= IP_HEADER_LEN + crate::protocol::ICMP_HEADER_LEN {
             let offending = &data[..IP_HEADER_LEN + crate::protocol::ICMP_HEADER_LEN];
             if let Err(error) =
-                Icmp::destination_unreachable::<P, P>(interface, offending, header.source())
+                Icmp::destination_unreachable::<P, P>(interface, offending, header.src())
             {
                 error!("{error}");
             }

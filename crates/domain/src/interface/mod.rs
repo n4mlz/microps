@@ -28,12 +28,12 @@ pub trait NetInterface<P: Platform + 'static>: core::fmt::Debug + Send {
         &self,
         frame_type: u16,
         data: &[u8],
-        destination: Option<&[u8]>,
+        dest: Option<&[u8]>,
     ) -> Result<(), InterfaceOutputError> {
         let device = self.device().ok_or(InterfaceOutputError::NotAttached)?;
         P::stack()
             .devices
-            .output(device, frame_type, data, destination)
+            .output(device, frame_type, data, dest)
             .map_err(InterfaceOutputError::Device)
     }
 }

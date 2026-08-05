@@ -33,9 +33,7 @@ impl EtherTapDevice {
     fn handle_frame<P: Platform + 'static>(&mut self, frame: &[u8]) -> Result<(), DeviceError> {
         let frame =
             EthernetFrame::try_from(frame).map_err(|error| backend_error(error.to_string()))?;
-        if frame.header().destination() != self.address
-            && frame.header().destination() != MacAddr::BROADCAST
-        {
+        if frame.header().dest() != self.address && frame.header().dest() != MacAddr::BROADCAST {
             return Ok(());
         }
         let device = self.device_key.ok_or(DeviceError::MissingDeviceKey)?;
@@ -86,13 +84,10 @@ impl<P: Platform + 'static> DeviceBackend<P> for EtherTapDevice {
         data: &[u8],
         dst: Option<&[u8]>,
     ) -> Result<(), DeviceError> {
-        let destination = dst.ok_or(DeviceError::MissingDestination)?;
-        let destination: [u8; 6] =
-            destination
-                .try_into()
-                .map_err(|_| DeviceError::InvalidDestination {
-                    len: destination.len(),
-                })?;
+        let dest = dst.ok_or(DeviceError::MissingDestination)?;
+        let dest: [u8; 6] = dest
+            .try_into()
+            .map_err(|_| DeviceError::InvalidDestination { len: dest.len() })?;
         if data.len() > FRAME_LEN_MAX - HEADER_LEN {
             return Err(DeviceError::PayloadTooLarge {
                 mtu: FRAME_LEN_MAX - HEADER_LEN,
@@ -101,9 +96,8 @@ impl<P: Platform + 'static> DeviceBackend<P> for EtherTapDevice {
         }
         let ether_type =
             EtherType::try_from(frame_type).map_err(|error| backend_error(error.to_string()))?;
-        let mut frame =
-            EthernetFrame::build(self.address, MacAddr::from(destination), ether_type, data)
-                .map_err(|error| backend_error(error.to_string()))?;
+        let mut frame = EthernetFrame::build(self.address, MacAddr::from(dest), ether_type, data)
+            .map_err(|error| backend_error(error.to_string()))?;
         frame.resize(frame.len().max(FRAME_LEN_MIN), 0);
         debug!(
             "dev={}, type=0x{frame_type:04x}, len={}",
