@@ -1,4 +1,3 @@
-/// Platform-provided random number source.
 pub trait Random {
     type Error;
 

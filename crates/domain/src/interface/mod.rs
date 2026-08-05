@@ -8,14 +8,13 @@ mod registry;
 
 pub use registry::*;
 
-/// Address category understood by an interface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AddressFamily {
     Ipv4,
     Ipv6,
 }
 
-pub trait NetInterface: core::fmt::Debug + Send {
+pub trait NetInterface<P: Platform + 'static>: core::fmt::Debug + Send {
     fn as_any(&self) -> &dyn Any;
     fn family(&self) -> AddressFamily;
     fn input(&mut self, data: &[u8]);
@@ -25,15 +24,12 @@ pub trait NetInterface: core::fmt::Debug + Send {
     fn detach(&mut self) -> Option<DeviceKey>;
     fn accepts(&self, address: &[u8]) -> bool;
 
-    fn output_raw<P: Platform + 'static>(
+    fn output_raw(
         &self,
         frame_type: u16,
         data: &[u8],
         destination: Option<&[u8]>,
-    ) -> Result<(), InterfaceOutputError>
-    where
-        Self: Sized,
-    {
+    ) -> Result<(), InterfaceOutputError> {
         let device = self.device().ok_or(InterfaceOutputError::NotAttached)?;
         P::stack()
             .devices

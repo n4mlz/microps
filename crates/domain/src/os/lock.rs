@@ -1,8 +1,5 @@
 use core::{fmt::Debug, ops::DerefMut};
 
-/// Platform-provided lock acquisition.
-///
-/// The returned guard releases the lock when dropped.
 pub trait Lock<T: ?Sized> {
     type Error: Debug;
     type Guard<'a>: DerefMut<Target = T>

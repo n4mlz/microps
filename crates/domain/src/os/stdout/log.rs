@@ -45,7 +45,6 @@ macro_rules! debug {
     }};
 }
 
-/// Dump bytes in a classic hex/ascii table.
 pub fn debugdump(data: &[u8]) {
     let size = data.len();
 

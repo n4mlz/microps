@@ -13,12 +13,13 @@ new_key_type! {
 
 #[derive(Debug)]
 pub struct InterfaceRegistry<P: Platform> {
-    interfaces: P::Mutex<SlotMap<InterfaceKey, Box<dyn NetInterface>>>,
+    interfaces: P::Mutex<SlotMap<InterfaceKey, Box<dyn NetInterface<P>>>>,
 }
 
-type Interfaces = SlotMap<InterfaceKey, Box<dyn NetInterface>>;
-type InterfaceGuard<'a, P> = <<P as Platform>::Mutex<Interfaces> as Lock<Interfaces>>::Guard<'a>;
-type InterfaceLockError<P> = <<P as Platform>::Mutex<Interfaces> as Lock<Interfaces>>::Error;
+type Interfaces<P> = SlotMap<InterfaceKey, Box<dyn NetInterface<P>>>;
+type InterfaceGuard<'a, P> =
+    <<P as Platform>::Mutex<Interfaces<P>> as Lock<Interfaces<P>>>::Guard<'a>;
+type InterfaceLockError<P> = <<P as Platform>::Mutex<Interfaces<P>> as Lock<Interfaces<P>>>::Error;
 
 impl<P: Platform> Default for InterfaceRegistry<P> {
     fn default() -> Self {
@@ -28,12 +29,12 @@ impl<P: Platform> Default for InterfaceRegistry<P> {
     }
 }
 
-impl<P: Platform> InterfaceRegistry<P> {
+impl<P: Platform + 'static> InterfaceRegistry<P> {
     pub fn acquire(&self) -> Result<InterfaceGuard<'_, P>, InterfaceLockError<P>> {
         self.interfaces.acquire()
     }
 
-    pub fn register(&self, interface: impl NetInterface + 'static) -> InterfaceKey {
+    pub fn register(&self, interface: impl NetInterface<P> + 'static) -> InterfaceKey {
         self.interfaces
             .acquire()
             .expect("interface registry lock is infallible")

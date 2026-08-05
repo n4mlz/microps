@@ -1,12 +1,25 @@
+use alloc::vec::Vec;
 use core::fmt;
 
 use getset::{CopyGetters, Getters};
 use thiserror::Error;
 
-use super::{Ipv4Addr, Ipv4Packet};
-use crate::{debug, debugdump, protocol::checksum16};
+use crate::{
+    Platform, Random, debug, debugdump,
+    protocol::{
+        checksum16,
+        ipv4::{Ipv4, Ipv4Addr, Ipv4Interface, Ipv4OutputError, Ipv4Packet, Ipv4Protocol},
+    },
+};
 
 pub const ICMP_HEADER_LEN: usize = 8;
+
+pub struct Icmp;
+
+impl Icmp {
+    /// The unused field value for ICMP messages that do not define it.
+    pub const UNUSED: u32 = 0;
+}
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -62,6 +75,18 @@ impl fmt::Display for IcmpType {
         };
         f.write_str(name)
     }
+}
+
+/// Codes defined for ICMP Destination Unreachable messages.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum IcmpDestinationUnreachableCode {
+    NetworkUnreachable = 0,
+    HostUnreachable = 1,
+    ProtocolUnreachable = 2,
+    PortUnreachable = 3,
+    FragmentationNeeded = 4,
+    SourceRouteFailed = 5,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,30 +155,95 @@ impl<'a> IcmpPacket<'a> {
             data: packet.payload(),
         })
     }
+}
 
-    pub fn input(&self) {
+impl Icmp {
+    pub fn echo_reply<P: Platform + 'static, R: Random>(
+        interface: &Ipv4Interface,
+        request: &IcmpPacket<'_>,
+    ) -> Result<usize, Ipv4OutputError<R::Error>> {
+        Self::output::<P, R>(
+            interface,
+            IcmpType::EchoReply as u8,
+            request.header.code(),
+            request.header.dependent(),
+            request.payload,
+            interface.unicast(),
+            request.source,
+        )
+    }
+
+    pub fn destination_unreachable<P: Platform + 'static, R: Random>(
+        interface: &Ipv4Interface,
+        offending: &[u8],
+        destination: Ipv4Addr,
+    ) -> Result<usize, Ipv4OutputError<R::Error>> {
+        Self::output::<P, R>(
+            interface,
+            IcmpType::DestinationUnreachable as u8,
+            IcmpDestinationUnreachableCode::ProtocolUnreachable as u8,
+            Self::UNUSED,
+            offending,
+            interface.unicast(),
+            destination,
+        )
+    }
+
+    pub fn output<P: Platform + 'static, R: Random>(
+        interface: &Ipv4Interface,
+        type_value: u8,
+        code: u8,
+        dependent: u32,
+        payload: &[u8],
+        source: Ipv4Addr,
+        destination: Ipv4Addr,
+    ) -> Result<usize, Ipv4OutputError<R::Error>> {
+        let mut data = Vec::with_capacity(ICMP_HEADER_LEN + payload.len());
+        data.extend_from_slice(&[type_value, code, 0, 0]);
+        data.extend_from_slice(&dependent.to_be_bytes());
+        data.extend_from_slice(payload);
+        let checksum = checksum16(&data);
+        data[2..4].copy_from_slice(&checksum.to_be_bytes());
+        Ipv4::output::<P, R>(
+            interface,
+            Ipv4Protocol::Icmp as u8,
+            &data,
+            source,
+            destination,
+        )
+    }
+
+    pub fn input<P: Platform + 'static, R: Random>(
+        packet: Ipv4Packet<'_>,
+        interface: &Ipv4Interface,
+    ) -> Result<(), IcmpError> {
+        let packet = IcmpPacket::from_ipv4(packet)?;
         debug!(
             "{} => {}, len={}",
-            self.source,
-            self.destination,
-            self.payload.len() + ICMP_HEADER_LEN
+            packet.source,
+            packet.destination,
+            packet.payload.len() + ICMP_HEADER_LEN
         );
-        match IcmpType::try_from(self.header.type_value()) {
-            Ok(kind) => debug!("type: {} ({})", self.header.type_value(), kind),
-            Err(_) => debug!("type: {} (Unknown)", self.header.type_value()),
+        match IcmpType::try_from(packet.header.type_value()) {
+            Ok(kind) => debug!("type: {} ({})", packet.header.type_value(), kind),
+            Err(_) => debug!("type: {} (Unknown)", packet.header.type_value()),
         }
-        debug!("code: {}", self.header.code());
-        debug!("sum: 0x{:04x}", self.header.checksum());
-        match IcmpType::try_from(self.header.type_value()) {
+        debug!("code: {}", packet.header.code());
+        debug!("sum: 0x{:04x}", packet.header.checksum());
+        match IcmpType::try_from(packet.header.type_value()) {
             Ok(IcmpType::Echo | IcmpType::EchoReply) => {
-                debug!("id: {}", self.header.dependent() >> 16);
-                debug!("seq: {}", self.header.dependent() & 0xffff);
+                debug!("id: {}", packet.header.dependent() >> 16);
+                debug!("seq: {}", packet.header.dependent() & 0xffff);
             }
-            Ok(IcmpType::DestinationUnreachable) => {
-                debug!("unused: {}", self.header.dependent());
-            }
-            _ => debug!("dep: 0x{:08x}", self.header.dependent()),
+            Ok(IcmpType::DestinationUnreachable) => debug!("unused: {}", packet.header.dependent()),
+            _ => debug!("dep: 0x{:08x}", packet.header.dependent()),
         }
-        debugdump(self.data);
+        debugdump(packet.data);
+        if packet.header.type_value() == IcmpType::Echo as u8
+            && let Err(error) = Self::echo_reply::<P, R>(interface, &packet)
+        {
+            crate::error!("{error}");
+        }
+        Ok(())
     }
 }

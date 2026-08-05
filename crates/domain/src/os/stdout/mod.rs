@@ -5,7 +5,6 @@ use core::{
 
 mod log;
 
-/// `fmt::Write` adapter used by the printing macros.
 pub struct Writer;
 
 impl fmt::Write for Writer {
@@ -15,7 +14,6 @@ impl fmt::Write for Writer {
     }
 }
 
-/// Platform-provided standard output sink.
 pub trait Stdout {
     fn init() {
         set_writer(Self::write);

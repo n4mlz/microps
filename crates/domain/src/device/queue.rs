@@ -32,7 +32,6 @@ impl ReceivedFrame {
     }
 }
 
-/// The owned input queue storage.
 #[derive(Debug)]
 pub struct InputQueueInner<P: Platform> {
     frames: P::Mutex<VecDeque<ReceivedFrame>>,

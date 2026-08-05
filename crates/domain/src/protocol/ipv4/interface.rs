@@ -1,10 +1,9 @@
 use getset::{CopyGetters, Getters};
 use thiserror::Error;
 
-use super::{IcmpPacket, Ipv4Addr, Ipv4Packet, Ipv4Protocol};
+use super::{Ipv4, Ipv4Addr};
 use crate::{
     AddressFamily, DeviceKey, InterfaceError, InterfaceOutputError, NetInterface, Platform, Random,
-    debug, error,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Getters, CopyGetters)]
@@ -40,25 +39,19 @@ impl Ipv4Interface {
         source: Ipv4Addr,
         destination: Ipv4Addr,
     ) -> Result<usize, Ipv4OutputError<R::Error>> {
-        if source != self.unicast {
-            return Err(Ipv4OutputError::SourceNotOwned);
-        }
-        let destination_is_broadcast =
-            destination == self.broadcast || destination == Ipv4Addr::BROADCAST;
-        let same_network = source
-            .as_bytes()
-            .iter()
-            .zip(destination.as_bytes())
-            .zip(self.netmask.as_bytes())
-            .all(|((source, destination), netmask)| source & netmask == destination & netmask);
-        if !destination_is_broadcast && !same_network {
-            return Err(Ipv4OutputError::DestinationUnreachable);
-        }
+        Ipv4::output::<P, R>(self, protocol, data, source, destination)
+    }
 
-        let id = R::random16().map_err(Ipv4OutputError::Random)?;
-        let packet = Ipv4Packet::build(protocol, data, id, source, destination)?;
-        self.output_raw::<P>(crate::protocol::EtherType::Ipv4 as u16, &packet, None)?;
-        Ok(packet.len())
+    pub fn accepts(&self, address: &[u8]) -> bool {
+        let Ok(address) = <[u8; 4]>::try_from(address) else {
+            return false;
+        };
+        let address = Ipv4Addr::from(address);
+        address == self.unicast || address == self.broadcast || address == Ipv4Addr::BROADCAST
+    }
+
+    pub fn device(&self) -> Option<DeviceKey> {
+        self.device
     }
 }
 
@@ -76,7 +69,7 @@ pub enum Ipv4OutputError<E> {
     Random(E),
 }
 
-impl NetInterface for Ipv4Interface {
+impl<P: Platform + 'static> NetInterface<P> for Ipv4Interface {
     fn as_any(&self) -> &dyn core::any::Any {
         self
     }
@@ -86,52 +79,7 @@ impl NetInterface for Ipv4Interface {
     }
 
     fn input(&mut self, data: &[u8]) {
-        let packet = match Ipv4Packet::try_from(data) {
-            Ok(packet) => packet,
-            Err(error) => {
-                error!("{error}");
-                return;
-            }
-        };
-        let header = packet.header();
-        let destination = header.destination();
-        if destination != self.unicast
-            && destination != self.broadcast
-            && destination != Ipv4Addr::BROADCAST
-        {
-            return;
-        }
-
-        debug!(
-            "vhl: 0x{:02x} [v: {}, hl: 5 (20)]",
-            data[0],
-            header.version()
-        );
-        debug!("tos: 0x{:02x}", header.tos());
-        debug!(
-            "total: {} (payload: {})",
-            packet.packet_len(),
-            packet.payload().len()
-        );
-        debug!("id: {}", header.id());
-        debug!(
-            "offset: 0x{:04x} [flags={}, offset={}]",
-            (u16::from(header.flags()) << 13) | header.fragment_offset(),
-            header.flags(),
-            header.fragment_offset()
-        );
-        debug!("ttl: {}", header.ttl());
-        debug!("protocol: {}", header.protocol());
-        debug!("sum: {:?}", header.checksum());
-        debug!("src: {}", header.source());
-        debug!("dst: {}", header.destination());
-
-        if let Ok(Ipv4Protocol::Icmp) = Ipv4Protocol::try_from(header.protocol()) {
-            match IcmpPacket::from_ipv4(packet) {
-                Ok(packet) => packet.input(),
-                Err(error) => error!("{error}"),
-            }
-        }
+        Ipv4::input::<P>(data, self)
     }
 
     fn has_address(&self, address: &[u8]) -> bool {
@@ -142,15 +90,11 @@ impl NetInterface for Ipv4Interface {
     }
 
     fn accepts(&self, address: &[u8]) -> bool {
-        let Ok(address) = <[u8; 4]>::try_from(address) else {
-            return false;
-        };
-        let address = Ipv4Addr::from(address);
-        address == self.unicast || address == self.broadcast || address == Ipv4Addr::BROADCAST
+        self.accepts(address)
     }
 
     fn device(&self) -> Option<DeviceKey> {
-        self.device
+        self.device()
     }
 
     fn attach(&mut self, device: DeviceKey) -> Result<(), InterfaceError> {

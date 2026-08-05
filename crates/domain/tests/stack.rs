@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
-use microps::{Irq, IrqLine, Lock, Platform, Stack};
+use microps::{Irq, IrqLine, Lock, Platform, Random, Stack};
 
 struct MockRuntime;
 
@@ -47,6 +47,14 @@ impl Platform for MockRuntime {
 
     fn shutdown() {
         SHUTDOWN_CALLS.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl Random for MockRuntime {
+    type Error = core::convert::Infallible;
+
+    fn random16() -> Result<u16, Self::Error> {
+        Ok(0)
     }
 }
 
