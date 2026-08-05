@@ -2,7 +2,7 @@ use thiserror::Error;
 
 use crate::{
     AddressFamily, DeviceError, DeviceRegistry, InputQueue, InterfaceError, InterfaceRegistry,
-    Platform, debug, debugdump, error, info,
+    NetInterface, Platform, debug, debugdump, error, info,
     protocol::{self, ArpCache, Ipv4RoutingTable},
 };
 
@@ -67,23 +67,33 @@ impl<P: Platform + 'static> Stack<P> {
                     continue;
                 }
             };
-            let mut interfaces = self
-                .interfaces
-                .acquire()
-                .expect("interface registry lock is infallible");
-            let Some(interface_key) = interfaces
-                .iter()
-                .find(|(_, interface)| {
-                    interface.device() == Some(device) && interface.family() == family
-                })
-                .map(|(key, _)| key)
-            else {
-                continue;
+            let interface_key = {
+                let interfaces = self
+                    .interfaces
+                    .acquire()
+                    .expect("interface registry lock is infallible");
+                let Some(interface_key) = interfaces
+                    .iter()
+                    .find(|(_, interface)| {
+                        interface.device() == Some(device) && interface.family() == family
+                    })
+                    .map(|(key, _)| key)
+                else {
+                    continue;
+                };
+                interface_key
             };
-            let Some(interface) = interfaces.get_mut(interface_key) else {
+            let Some(mut interface) = self
+                .interfaces
+                .interface_as::<protocol::Ipv4Interface>(interface_key)
+            else {
                 return Err(StackError::InterfaceNotFound);
             };
-            interface.input(frame.frame_type(), frame.data());
+            <protocol::Ipv4Interface as NetInterface<P>>::input(
+                &mut interface,
+                frame.frame_type(),
+                frame.data(),
+            );
         }
         Ok(())
     }

@@ -72,6 +72,11 @@ impl Ipv4 {
         if src != Ipv4Addr::ANY && src != routed_interface.unicast() {
             return Err(Ipv4OutputError::SourceNotOwned);
         }
+        let src = if src == Ipv4Addr::ANY {
+            routed_interface.unicast()
+        } else {
+            src
+        };
         let id = R::random16().map_err(Ipv4OutputError::Random)?;
         let packet = Ipv4Packet::build(protocol, data, id, src, dest)?;
         let dest_hardware = if routed_interface.hardware_address::<P>().is_some() {
