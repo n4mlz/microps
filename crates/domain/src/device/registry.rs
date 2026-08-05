@@ -47,6 +47,14 @@ impl<P: Platform> DeviceRegistry<P> {
             .contains_key(key)
     }
 
+    pub fn hardware_address(&self, key: DeviceKey) -> Option<crate::protocol::MacAddr> {
+        self.devices
+            .acquire()
+            .expect("device registry lock is infallible")
+            .get(key)
+            .and_then(Device::hardware_address)
+    }
+
     pub fn keys(&self) -> Vec<DeviceKey> {
         self.devices
             .acquire()
