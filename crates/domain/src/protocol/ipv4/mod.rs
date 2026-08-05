@@ -10,7 +10,7 @@ pub use packet::*;
 
 use crate::{
     NetInterface, Platform, Random, debug, error,
-    protocol::{EtherType, Icmp, IcmpDestinationUnreachableCode, IcmpType},
+    protocol::{EtherType, Icmp},
 };
 
 #[repr(u8)]
@@ -122,15 +122,9 @@ impl Ipv4 {
             }
         } else if data.len() >= IP_HEADER_LEN + crate::protocol::ICMP_HEADER_LEN {
             let offending = &data[..IP_HEADER_LEN + crate::protocol::ICMP_HEADER_LEN];
-            if let Err(error) = Icmp::output::<P, P>(
-                interface,
-                IcmpType::DestinationUnreachable as u8,
-                IcmpDestinationUnreachableCode::ProtocolUnreachable as u8,
-                Icmp::UNUSED,
-                offending,
-                interface.unicast(),
-                header.source(),
-            ) {
+            if let Err(error) =
+                Icmp::destination_unreachable::<P, P>(interface, offending, header.source())
+            {
                 error!("{error}");
             }
         }

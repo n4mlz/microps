@@ -158,6 +158,37 @@ impl<'a> IcmpPacket<'a> {
 }
 
 impl Icmp {
+    pub fn echo_reply<P: Platform + 'static, R: Random>(
+        interface: &Ipv4Interface,
+        request: &IcmpPacket<'_>,
+    ) -> Result<usize, Ipv4OutputError<R::Error>> {
+        Self::output::<P, R>(
+            interface,
+            IcmpType::EchoReply as u8,
+            request.header.code(),
+            request.header.dependent(),
+            request.payload,
+            interface.unicast(),
+            request.source,
+        )
+    }
+
+    pub fn destination_unreachable<P: Platform + 'static, R: Random>(
+        interface: &Ipv4Interface,
+        offending: &[u8],
+        destination: Ipv4Addr,
+    ) -> Result<usize, Ipv4OutputError<R::Error>> {
+        Self::output::<P, R>(
+            interface,
+            IcmpType::DestinationUnreachable as u8,
+            IcmpDestinationUnreachableCode::ProtocolUnreachable as u8,
+            Self::UNUSED,
+            offending,
+            interface.unicast(),
+            destination,
+        )
+    }
+
     pub fn output<P: Platform + 'static, R: Random>(
         interface: &Ipv4Interface,
         type_value: u8,
@@ -208,18 +239,10 @@ impl Icmp {
             _ => debug!("dep: 0x{:08x}", packet.header.dependent()),
         }
         debugdump(packet.data);
-        if packet.header.type_value() == IcmpType::Echo as u8 {
-            if let Err(error) = Self::output::<P, R>(
-                interface,
-                IcmpType::EchoReply as u8,
-                packet.header.code(),
-                packet.header.dependent(),
-                packet.payload,
-                interface.unicast(),
-                packet.source,
-            ) {
-                crate::error!("{error}");
-            }
+        if packet.header.type_value() == IcmpType::Echo as u8
+            && let Err(error) = Self::echo_reply::<P, R>(interface, &packet)
+        {
+            crate::error!("{error}");
         }
         Ok(())
     }
