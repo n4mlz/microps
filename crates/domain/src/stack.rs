@@ -3,7 +3,7 @@ use thiserror::Error;
 use crate::{
     AddressFamily, Device, DeviceBackend, DeviceError, DeviceKey, DeviceMeta, DeviceRegistry,
     InputQueue, InterfaceError, InterfaceRegistry, Platform, debug, debugdump, error, info,
-    protocol,
+    protocol::{self, ArpCache},
 };
 
 /// Network stack state and ownership root for devices and interfaces.
@@ -12,6 +12,7 @@ pub struct Stack<P: Platform> {
     pub devices: DeviceRegistry<P>,
     pub interfaces: InterfaceRegistry<P>,
     pub input_queue: InputQueue<P>,
+    pub arp_cache: ArpCache<P>,
 }
 
 #[derive(Debug, Error)]
@@ -32,6 +33,7 @@ impl<P: Platform + 'static> Stack<P> {
             devices: DeviceRegistry::default(),
             interfaces: InterfaceRegistry::default(),
             input_queue: alloc::sync::Arc::default(),
+            arp_cache: ArpCache::new(),
         }
     }
 

@@ -5,6 +5,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use microps::{Platform, Stdout};
@@ -63,4 +64,11 @@ impl Platform for LinuxPlatform {
     }
 
     fn shutdown() {}
+
+    fn now() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is before UNIX epoch")
+            .as_secs()
+    }
 }
