@@ -1,6 +1,6 @@
 use super::Lock;
 
-pub trait Platform: super::Irq + super::Random {
+pub trait Platform: super::Irq + super::Random + super::Time {
     type Error;
     type Mutex<T>: Lock<T> + Send + Sync
     where
@@ -15,8 +15,4 @@ pub trait Platform: super::Irq + super::Random {
     }
 
     fn shutdown();
-
-    fn now() -> u64 {
-        0
-    }
 }

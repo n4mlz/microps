@@ -5,7 +5,7 @@ use std::sync::{
 
 use microps::{
     Device, DeviceBackend, DeviceError, DeviceKind, DeviceMeta, DeviceRegistry, Irq, IrqLine, Lock,
-    LoopbackDevice, Platform, Random, Stack, protocol::EtherType,
+    LoopbackDevice, Platform, Random, Stack, Time, protocol::EtherType,
 };
 
 #[derive(Debug, Default)]
@@ -62,6 +62,12 @@ impl Random for TestPlatform {
 
     fn random16() -> Result<u16, Self::Error> {
         Ok(0)
+    }
+}
+
+impl Time for TestPlatform {
+    fn monotonic_time_microseconds() -> u64 {
+        0
     }
 }
 

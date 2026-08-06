@@ -2,10 +2,10 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 
 use microps::{
-    Irq, IrqLine, Lock, Platform, Random, Stack,
+    Irq, IrqLine, Lock, Platform, Random, Stack, Time,
     protocol::{
-        Ipv4Addr, Ipv4Endpoint, TcpAckResult, TcpOpenError, TcpOpenMode, TcpPcb, TcpState,
-        UdpPcbError,
+        Ipv4Addr, Ipv4Endpoint, TcpAckResult, TcpFlags, TcpOpenError, TcpOpenMode, TcpPcb,
+        TcpState, UdpPcbError,
     },
 };
 
@@ -72,6 +72,12 @@ impl Random for MockRuntime {
 
     fn random16() -> Result<u16, Self::Error> {
         Ok(0)
+    }
+}
+
+impl Time for MockRuntime {
+    fn monotonic_time_microseconds() -> u64 {
+        0
     }
 }
 
@@ -163,4 +169,21 @@ fn tcp_pcb_accepts_acks_and_buffers_payload() {
     let mut buffer = [0; 3];
     assert_eq!(pcb.receive(&mut buffer), 3);
     assert_eq!(&buffer, b"hey");
+}
+
+#[test]
+fn tcp_pcb_retransmits_with_backoff_and_cleans_up_acked_data() {
+    let local = Ipv4Endpoint::new(Ipv4Addr::ANY, 7);
+    let remote = Ipv4Endpoint::new(Ipv4Addr::from([192, 0, 2, 2]), 50000);
+    let mut pcb = TcpPcb::new();
+
+    pcb.accept_syn(local, remote, 100, 200);
+    pcb.queue_retrans(200, TcpFlags::SYN, &[], 0);
+    assert!(pcb.due_retrans(199_999).is_empty());
+    assert_eq!(pcb.due_retrans(200_000).len(), 1);
+    assert!(pcb.due_retrans(599_999).is_empty());
+    assert_eq!(pcb.due_retrans(600_000).len(), 1);
+
+    assert_eq!(pcb.accept_ack(101, 201, 4096), TcpAckResult::Accepted);
+    assert!(pcb.due_retrans(12_000_001).is_empty());
 }
