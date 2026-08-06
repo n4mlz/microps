@@ -1,7 +1,7 @@
 use microps::protocol::{
     ArpError, ArpOperation, ArpPacket, EtherType, EthernetError, EthernetFrame, IcmpError,
-    IcmpHeader, IcmpPacket, IcmpType, Ipv4Addr, Ipv4Error, Ipv4Header, Ipv4Interface, Ipv4Packet,
-    Ipv4Protocol, MacAddr,
+    IcmpHeader, IcmpPacket, IcmpType, Ipv4Addr, Ipv4Endpoint, Ipv4Error, Ipv4Header, Ipv4Interface,
+    Ipv4Packet, Ipv4Protocol, MacAddr, UdpError, UdpPacket,
 };
 
 #[test]
@@ -60,6 +60,24 @@ fn ipv4_addr_rejects_invalid_dotted_decimal() {
     assert!("192.0.2".parse::<Ipv4Addr>().is_err());
     assert!("192.0.2.256".parse::<Ipv4Addr>().is_err());
     assert!("192.0.2.1x".parse::<Ipv4Addr>().is_err());
+}
+
+#[test]
+fn ipv4_endpoint_parses_and_formats() {
+    let endpoint = "192.0.2.1:5353"
+        .parse::<Ipv4Endpoint>()
+        .expect("valid endpoint");
+
+    assert_eq!(endpoint.address(), Ipv4Addr::from([192, 0, 2, 1]));
+    assert_eq!(endpoint.port(), 5353);
+    assert_eq!(endpoint.to_string(), "192.0.2.1:5353");
+}
+
+#[test]
+fn ipv4_endpoint_rejects_invalid_values() {
+    assert!("192.0.2.1".parse::<Ipv4Endpoint>().is_err());
+    assert!("192.0.2.1:65536".parse::<Ipv4Endpoint>().is_err());
+    assert!("192.0.2.256:53".parse::<Ipv4Endpoint>().is_err());
 }
 
 #[test]
@@ -145,6 +163,60 @@ fn ipv4_protocol_numbers_are_typed() {
     assert_eq!(Ipv4Protocol::try_from(6), Ok(Ipv4Protocol::Tcp));
     assert_eq!(Ipv4Protocol::try_from(17), Ok(Ipv4Protocol::Udp));
     assert!(Ipv4Protocol::try_from(99).is_err());
+}
+
+#[test]
+fn udp_packet_parses_declared_length_and_ports() {
+    let udp = [
+        0x04, 0xd2, 0x16, 0x2e, 0x00, 0x0b, 0x00, 0x00, b'h', b'i', b'!',
+    ];
+    let ipv4 = Ipv4Packet::build(
+        Ipv4Protocol::Udp as u8,
+        &udp,
+        0,
+        Ipv4Addr::from([192, 0, 2, 1]),
+        Ipv4Addr::from([192, 0, 2, 2]),
+    )
+    .expect("packet builds");
+
+    let packet =
+        UdpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4[..]).unwrap()).expect("UDP packet parses");
+    assert_eq!(packet.src().to_string(), "192.0.2.1:1234");
+    assert_eq!(packet.dest().to_string(), "192.0.2.2:5678");
+    assert_eq!(packet.payload(), b"hi!");
+}
+
+#[test]
+fn udp_packet_rejects_invalid_lengths_and_checksums() {
+    let mut udp = [0; 8];
+    udp[4..6].copy_from_slice(&7u16.to_be_bytes());
+    let ipv4 = Ipv4Packet::build(
+        Ipv4Protocol::Udp as u8,
+        &udp,
+        0,
+        Ipv4Addr::from([192, 0, 2, 1]),
+        Ipv4Addr::from([192, 0, 2, 2]),
+    )
+    .unwrap();
+    assert_eq!(
+        UdpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4[..]).unwrap()),
+        Err(UdpError::LengthTooSmall { length: 7 })
+    );
+
+    udp[4..6].copy_from_slice(&8u16.to_be_bytes());
+    udp[6..8].copy_from_slice(&1u16.to_be_bytes());
+    let ipv4 = Ipv4Packet::build(
+        Ipv4Protocol::Udp as u8,
+        &udp,
+        0,
+        Ipv4Addr::from([192, 0, 2, 1]),
+        Ipv4Addr::from([192, 0, 2, 2]),
+    )
+    .unwrap();
+    assert_eq!(
+        UdpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4[..]).unwrap()),
+        Err(UdpError::InvalidChecksum)
+    );
 }
 
 #[test]

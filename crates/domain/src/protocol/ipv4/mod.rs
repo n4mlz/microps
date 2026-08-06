@@ -12,7 +12,7 @@ pub use route::*;
 
 use crate::{
     NetInterface, Platform, Random, debug, error,
-    protocol::{Arp, EtherType, Icmp, MacAddr},
+    protocol::{Arp, EtherType, Icmp, MacAddr, Udp},
 };
 
 #[repr(u8)]
@@ -152,17 +152,26 @@ impl Ipv4 {
         debug!("src: {}", header.src());
         debug!("dst: {}", header.dest());
 
-        if let Ok(Ipv4Protocol::Icmp) = Ipv4Protocol::try_from(header.protocol()) {
-            if let Err(error) = Icmp::input::<P, P>(packet, interface) {
-                error!("{error}");
+        match Ipv4Protocol::try_from(header.protocol()) {
+            Ok(Ipv4Protocol::Icmp) => {
+                if let Err(error) = Icmp::input::<P, P>(packet, interface) {
+                    error!("{error}");
+                }
             }
-        } else if data.len() >= IP_HEADER_LEN + crate::protocol::ICMP_HEADER_LEN {
-            let offending = &data[..IP_HEADER_LEN + crate::protocol::ICMP_HEADER_LEN];
-            if let Err(error) =
-                Icmp::destination_unreachable::<P, P>(interface, offending, header.src())
-            {
-                error!("{error}");
+            Ok(Ipv4Protocol::Udp) => {
+                if let Err(error) = Udp::input(packet) {
+                    error!("{error}");
+                }
             }
+            _ if data.len() >= IP_HEADER_LEN + crate::protocol::ICMP_HEADER_LEN => {
+                let offending = &data[..IP_HEADER_LEN + crate::protocol::ICMP_HEADER_LEN];
+                if let Err(error) =
+                    Icmp::destination_unreachable::<P, P>(interface, offending, header.src())
+                {
+                    error!("{error}");
+                }
+            }
+            _ => {}
         }
     }
 }

@@ -1,5 +1,7 @@
 use core::{fmt, str::FromStr};
 
+use getset::CopyGetters;
+
 /// IPv4 address in network byte order.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Ipv4Addr {
@@ -61,3 +63,38 @@ impl FromStr for Ipv4Addr {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("invalid IPv4 address")]
 pub struct Ipv4AddrParseError;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, CopyGetters)]
+pub struct Ipv4Endpoint {
+    #[getset(get_copy = "pub")]
+    address: Ipv4Addr,
+    #[getset(get_copy = "pub")]
+    port: u16,
+}
+
+impl Ipv4Endpoint {
+    pub const fn new(address: Ipv4Addr, port: u16) -> Self {
+        Self { address, port }
+    }
+}
+
+impl fmt::Display for Ipv4Endpoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.address, self.port)
+    }
+}
+
+impl FromStr for Ipv4Endpoint {
+    type Err = Ipv4EndpointParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (address, port) = value.rsplit_once(':').ok_or(Ipv4EndpointParseError)?;
+        let address = address.parse().map_err(|_| Ipv4EndpointParseError)?;
+        let port = port.parse().map_err(|_| Ipv4EndpointParseError)?;
+        Ok(Self::new(address, port))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("invalid IPv4 endpoint")]
+pub struct Ipv4EndpointParseError;
