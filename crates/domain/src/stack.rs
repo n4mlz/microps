@@ -14,6 +14,7 @@ pub struct Stack<P: Platform> {
     pub input_queue: InputQueue<P>,
     pub arp_cache: ArpCache<P>,
     pub ipv4_routes: Ipv4RoutingTable<P>,
+    pub udp_pcbs: protocol::UdpPcbRegistry<P>,
 }
 
 #[derive(Debug, Error)]
@@ -36,6 +37,7 @@ impl<P: Platform + 'static> Stack<P> {
             input_queue: alloc::sync::Arc::default(),
             arp_cache: ArpCache::new(),
             ipv4_routes: Ipv4RoutingTable::default(),
+            udp_pcbs: protocol::UdpPcbRegistry::default(),
         }
     }
 

@@ -1,7 +1,10 @@
 use std::{thread, time::Duration};
 
 use linux::{EtherTapDevice, LinuxPlatform, should_terminate, stack};
-use microps::{DeviceKind, DeviceMeta, Irq, IrqLine, Stack, debug, error, protocol::Ipv4Interface};
+use microps::{
+    DeviceKind, DeviceMeta, Irq, IrqLine, Stack, debug, error,
+    protocol::{Ipv4Endpoint, Ipv4Interface},
+};
 
 // These values must match scripts/linux_tap_up.sh:
 // Linux host = 10.0.0.1/24, microps = 10.0.0.2/24.
@@ -75,12 +78,25 @@ fn main() {
         return;
     }
 
+    let udp_pcb = stack.udp_pcbs.open();
+    if let Err(error_value) = stack
+        .udp_pcbs
+        .bind(udp_pcb, Ipv4Endpoint::new(TAP_IP.into(), 7))
+    {
+        error!("UDP bind failure: {error_value}");
+        let _ = stack.udp_pcbs.close(udp_pcb);
+        stack.close_all();
+        Stack::<LinuxPlatform>::shutdown();
+        return;
+    }
+
     debug!("interface={interface_key:?}, press Ctrl+C to terminate");
     while !should_terminate() {
         thread::sleep(Duration::from_millis(10));
     }
 
     debug!("terminate");
+    stack.udp_pcbs.close(udp_pcb).unwrap();
     stack.close_all();
     Stack::<LinuxPlatform>::shutdown();
 }
