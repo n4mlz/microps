@@ -272,7 +272,7 @@ impl Tcp {
                 TcpState::Established | TcpState::FinWait1 | TcpState::FinWait2 => {}
                 TcpState::CloseWait if !current.has_received_data() => return Ok(0),
                 TcpState::CloseWait => {}
-                TcpState::LastAck | TcpState::TimeWait => return Ok(0),
+                TcpState::Closing | TcpState::LastAck | TcpState::TimeWait => return Ok(0),
                 state => return Err(TcpReceiveError::State(state)),
             }
             if buffer.is_empty() {
@@ -414,6 +414,12 @@ impl Tcp {
                 } else {
                     false
                 };
+                if flags.contains(TcpFlags::RST) {
+                    if ack_acceptable {
+                        P::stack().tcp_pcbs.close(pcb);
+                    }
+                    return Ok(());
+                }
                 if !flags.contains(TcpFlags::SYN) {
                     return Ok(());
                 }
@@ -424,6 +430,11 @@ impl Tcp {
                     P::stack().tcp_pcbs.replace(pcb, pcb_state.clone())?;
                     Self::output::<P>(&mut pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
                     debug!("TCP PCB state: {:?}", TcpState::Established);
+                } else {
+                    pcb_state.accept_simultaneous_syn(segment.seq);
+                    Self::output::<P>(&mut pcb_state, TcpFlags::SYN | TcpFlags::ACK, &[])
+                        .map(|_| ())?;
+                    P::stack().tcp_pcbs.replace(pcb, pcb_state.clone())?;
                 }
             }
             TcpState::SynReceived
@@ -431,6 +442,7 @@ impl Tcp {
             | TcpState::FinWait1
             | TcpState::FinWait2
             | TcpState::CloseWait
+            | TcpState::Closing
             | TcpState::LastAck
             | TcpState::TimeWait => {
                 if !pcb_state.accept_segment(segment.seq, segment.length) {
@@ -440,6 +452,12 @@ impl Tcp {
                     return Ok(());
                 }
                 if flags.contains(TcpFlags::RST) {
+                    P::stack().tcp_pcbs.close(pcb);
+                    return Ok(());
+                }
+                if flags.contains(TcpFlags::SYN) {
+                    Self::output::<P>(&mut pcb_state, TcpFlags::RST, &[]).map(|_| ())?;
+                    P::stack().tcp_pcbs.close(pcb);
                     return Ok(());
                 }
                 if state == TcpState::LastAck
@@ -461,6 +479,9 @@ impl Tcp {
                             }
                         }
                         TcpAckResult::Old | TcpAckResult::Unchanged | TcpAckResult::Ignored => {}
+                    }
+                    if state == TcpState::Closing && segment.ack == pcb_state.snd_nxt() {
+                        pcb_state.enter_time_wait(P::monotonic_time_seconds());
                     }
                     P::stack().tcp_pcbs.replace(pcb, pcb_state.clone())?;
                 } else {
@@ -489,6 +510,7 @@ impl Tcp {
                     | TcpState::FinWait1
                     | TcpState::FinWait2
                     | TcpState::CloseWait
+                    | TcpState::Closing
                     | TcpState::LastAck
                     | TcpState::TimeWait
             )
@@ -496,6 +518,13 @@ impl Tcp {
             if !pcb_state.accept_fin_at(segment.seq, data.len(), P::monotonic_time_seconds()) {
                 Self::output::<P>(&mut pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
                 return Ok(());
+            }
+            if state == TcpState::FinWait1 {
+                if segment.ack == pcb_state.snd_nxt() {
+                    pcb_state.enter_time_wait(P::monotonic_time_seconds());
+                } else {
+                    pcb_state.set_closing();
+                }
             }
             Self::output::<P>(&mut pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
             P::stack().tcp_pcbs.replace(pcb, pcb_state.clone())?;
