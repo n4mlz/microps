@@ -13,4 +13,8 @@ pub trait Lock<T: ?Sized> {
         T: Sized;
 
     fn acquire(&self) -> Result<Self::Guard<'_>, Self::Error>;
+
+    fn wait<'a>(&'a self, guard: Self::Guard<'a>) -> Result<Self::Guard<'a>, Self::Error>;
+
+    fn wake_all(&self);
 }

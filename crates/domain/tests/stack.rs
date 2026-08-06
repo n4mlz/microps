@@ -1,5 +1,5 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 
 use microps::{
     Irq, IrqLine, Lock, Platform, Random, Stack,
@@ -11,7 +11,7 @@ struct MockRuntime;
 static STACK: OnceLock<Stack<MockRuntime>> = OnceLock::new();
 
 #[derive(Debug, Default)]
-struct TestMutex<T>(Mutex<T>);
+struct TestMutex<T>(Mutex<T>, Condvar);
 
 impl<T> Lock<T> for TestMutex<T> {
     type Error = core::convert::Infallible;
@@ -21,7 +21,7 @@ impl<T> Lock<T> for TestMutex<T> {
         T: 'a;
 
     fn new(value: T) -> Self {
-        Self(Mutex::new(value))
+        Self(Mutex::new(value), Condvar::new())
     }
 
     fn acquire(&self) -> Result<Self::Guard<'_>, Self::Error> {
@@ -29,6 +29,17 @@ impl<T> Lock<T> for TestMutex<T> {
             .0
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()))
+    }
+
+    fn wait<'a>(&'a self, guard: Self::Guard<'a>) -> Result<Self::Guard<'a>, Self::Error> {
+        Ok(self
+            .1
+            .wait(guard)
+            .unwrap_or_else(|poisoned| poisoned.into_inner()))
+    }
+
+    fn wake_all(&self) {
+        self.1.notify_all();
     }
 }
 
