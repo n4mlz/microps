@@ -74,6 +74,25 @@ impl<P: Platform> TcpPcbRegistry<P> {
         retrans
     }
 
+    pub fn expire_time_wait(&self, timestamp: u64) {
+        let mut pcbs = self
+            .pcbs
+            .acquire()
+            .expect("TCP PCB registry lock is infallible");
+        let expired: Vec<_> = pcbs
+            .iter()
+            .filter(|(_, pcb)| pcb.time_wait_expired(timestamp))
+            .map(|(key, _)| key)
+            .collect();
+        if expired.is_empty() {
+            return;
+        }
+        for key in expired {
+            pcbs.remove(key);
+        }
+        self.pcbs.wake_all();
+    }
+
     pub fn endpoint_in_use(
         &self,
         excluded: TcpPcbKey,
