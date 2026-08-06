@@ -101,6 +101,9 @@ fn main() {
         loop {
             match Tcp::receive::<LinuxPlatform>(tcp_pcb, &mut buffer) {
                 Ok(length) => {
+                    if length == 0 {
+                        break;
+                    }
                     debug!("received {length} bytes");
                     microps::debugdump(&buffer[..length]);
                     if let Err(error_value) = Tcp::send::<LinuxPlatform>(tcp_pcb, &buffer[..length])
@@ -118,15 +121,22 @@ fn main() {
             }
         }
     });
+    let mut close_requested = false;
     while !should_terminate() {
         if let Err(error_value) = Tcp::tick::<LinuxPlatform>() {
             error!("TCP retrans failure: {error_value}");
+        }
+        if !close_requested && echo_thread.is_finished() {
+            if let Err(error_value) = Tcp::close::<LinuxPlatform>(tcp_pcb) {
+                error!("TCP close failure: {error_value}");
+            }
+            close_requested = true;
         }
         thread::sleep(Duration::from_millis(100));
     }
 
     debug!("terminate");
-    if let Err(error_value) = Tcp::close::<LinuxPlatform>(tcp_pcb) {
+    if !close_requested && let Err(error_value) = Tcp::close::<LinuxPlatform>(tcp_pcb) {
         error!("TCP close failure: {error_value}");
     }
     let _ = echo_thread.join();

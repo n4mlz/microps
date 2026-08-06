@@ -190,6 +190,23 @@ fn tcp_pcb_completes_an_active_handshake() {
 }
 
 #[test]
+fn tcp_pcb_enters_close_wait_after_fin_and_last_ack_after_local_close() {
+    let local = Ipv4Endpoint::new(Ipv4Addr::ANY, 7);
+    let remote = Ipv4Endpoint::new(Ipv4Addr::from([192, 0, 2, 2]), 50000);
+    let mut pcb = TcpPcb::new();
+
+    pcb.accept_syn(local, remote, 100, 200);
+    pcb.accept_ack(101, 201, 4096);
+    assert!(pcb.accept_fin(101, 0));
+    assert_eq!(pcb.state(), TcpState::CloseWait);
+    assert_eq!(pcb.rcv_nxt(), 102);
+
+    pcb.enter_last_ack();
+    assert_eq!(pcb.state(), TcpState::LastAck);
+    assert_eq!(pcb.snd_nxt(), 202);
+}
+
+#[test]
 fn tcp_pcb_retransmits_with_backoff_and_cleans_up_acked_data() {
     let local = Ipv4Endpoint::new(Ipv4Addr::ANY, 7);
     let remote = Ipv4Endpoint::new(Ipv4Addr::from([192, 0, 2, 2]), 50000);
