@@ -12,7 +12,7 @@ pub use route::*;
 
 use crate::{
     NetInterface, Platform, Random, debug, error,
-    protocol::{Arp, EtherType, Icmp, MacAddr, Udp},
+    protocol::{Arp, EtherType, Icmp, MacAddr, Tcp, Udp},
 };
 
 #[repr(u8)]
@@ -174,6 +174,11 @@ impl Ipv4 {
                         }
                         error => error!("{error}"),
                     }
+                }
+            }
+            Ok(Ipv4Protocol::Tcp) => {
+                if let Err(error) = Tcp::input(packet, interface) {
+                    error!("{error}");
                 }
             }
             _ if data.len() >= IP_HEADER_LEN + crate::protocol::ICMP_HEADER_LEN => {

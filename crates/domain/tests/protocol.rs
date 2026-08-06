@@ -1,7 +1,7 @@
 use microps::protocol::{
     ArpError, ArpOperation, ArpPacket, EtherType, EthernetError, EthernetFrame, IcmpError,
     IcmpHeader, IcmpPacket, IcmpType, Ipv4Addr, Ipv4Endpoint, Ipv4Error, Ipv4Header, Ipv4Interface,
-    Ipv4Packet, Ipv4Protocol, MacAddr, UdpError, UdpPacket,
+    Ipv4Packet, Ipv4Protocol, MacAddr, TcpError, TcpFlags, TcpPacket, UdpError, UdpPacket,
 };
 
 #[test]
@@ -216,6 +216,64 @@ fn udp_packet_rejects_invalid_lengths_and_checksums() {
     assert_eq!(
         UdpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4[..]).unwrap()),
         Err(UdpError::InvalidChecksum)
+    );
+}
+
+#[test]
+fn tcp_packet_parses_header_options_and_payload() {
+    let tcp = [
+        0x04, 0xd2, 0x00, 0x50, 0x01, 0x02, 0x03, 0x04, 0, 0, 0, 0, 0x60, 0x02, 0xff, 0xff, 0xa2,
+        0x8f, 0, 0, 0x02, 0x04, 0x05, 0xb4, b'h', b'i',
+    ];
+    let ipv4 = Ipv4Packet::build(
+        Ipv4Protocol::Tcp as u8,
+        &tcp,
+        0,
+        Ipv4Addr::from([192, 0, 2, 1]),
+        Ipv4Addr::from([192, 0, 2, 2]),
+    )
+    .expect("packet builds");
+
+    let packet =
+        TcpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4[..]).unwrap()).expect("TCP packet parses");
+    assert_eq!(packet.src().to_string(), "192.0.2.1:1234");
+    assert_eq!(packet.dest().to_string(), "192.0.2.2:80");
+    assert_eq!(packet.header().sequence_number(), 0x0102_0304);
+    assert_eq!(packet.header().header_len(), 24);
+    assert_eq!(packet.header().flags(), TcpFlags::SYN);
+    assert_eq!(packet.options(), &[2, 4, 5, 180]);
+    assert_eq!(packet.payload(), b"hi");
+}
+
+#[test]
+fn tcp_packet_rejects_short_headers_and_bad_checksums() {
+    let ipv4 = Ipv4Packet::build(
+        Ipv4Protocol::Tcp as u8,
+        &[0; 19],
+        0,
+        Ipv4Addr::from([192, 0, 2, 1]),
+        Ipv4Addr::from([192, 0, 2, 2]),
+    )
+    .unwrap();
+    assert_eq!(
+        TcpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4[..]).unwrap()),
+        Err(TcpError::TooShort { len: 19 })
+    );
+
+    let mut tcp = [0; 20];
+    tcp[12] = 0x50;
+    tcp[16..18].copy_from_slice(&1u16.to_be_bytes());
+    let ipv4 = Ipv4Packet::build(
+        Ipv4Protocol::Tcp as u8,
+        &tcp,
+        0,
+        Ipv4Addr::from([192, 0, 2, 1]),
+        Ipv4Addr::from([192, 0, 2, 2]),
+    )
+    .unwrap();
+    assert_eq!(
+        TcpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4[..]).unwrap()),
+        Err(TcpError::InvalidChecksum)
     );
 }
 
