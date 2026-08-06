@@ -3,7 +3,7 @@ use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 
 use microps::{
     Irq, IrqLine, Lock, Platform, Random, Stack,
-    protocol::{Ipv4Addr, Ipv4Endpoint, UdpPcbError},
+    protocol::{Ipv4Addr, Ipv4Endpoint, TcpOpenError, TcpOpenMode, TcpState, UdpPcbError},
 };
 
 struct MockRuntime;
@@ -112,4 +112,33 @@ fn udp_registry_opens_binds_and_releases_sockets() {
     assert_eq!(stack.udp_pcbs.bind(second, endpoint), Ok(()));
     assert_eq!(stack.udp_pcbs.close(second), Ok(()));
     assert_eq!(stack.udp_pcbs.close(second), Err(UdpPcbError::NotFound));
+}
+
+#[test]
+fn tcp_registry_listens_and_rejects_duplicate_endpoints() {
+    let stack = MockRuntime::stack();
+    let first = stack.tcp_pcbs.open();
+    let second = stack.tcp_pcbs.open();
+    let local = Ipv4Endpoint::new(Ipv4Addr::ANY, 7);
+    let remote = Ipv4Endpoint::new(Ipv4Addr::ANY, 0);
+
+    let mut listener = stack.tcp_pcbs.get(first).unwrap();
+    listener.listen(local, remote);
+    assert_eq!(stack.tcp_pcbs.replace(first, listener), Ok(()));
+    assert_eq!(stack.tcp_pcbs.get(first).unwrap().state(), TcpState::Listen);
+    assert!(stack.tcp_pcbs.endpoint_in_use(second, local, remote));
+    assert!(stack.tcp_pcbs.close(first));
+    assert!(stack.tcp_pcbs.close(second));
+}
+
+#[test]
+fn tcp_active_open_is_not_implemented() {
+    assert_eq!(
+        microps::protocol::Tcp::open::<MockRuntime>(
+            Ipv4Endpoint::new(Ipv4Addr::ANY, 7),
+            Ipv4Endpoint::new(Ipv4Addr::ANY, 0),
+            TcpOpenMode::Active,
+        ),
+        Err(TcpOpenError::ActiveOpenUnsupported)
+    );
 }
