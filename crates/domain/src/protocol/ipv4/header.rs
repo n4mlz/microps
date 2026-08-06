@@ -1,8 +1,38 @@
 use getset::CopyGetters;
 use thiserror::Error;
 
-use super::{IP_HEADER_LEN, Ipv4Addr, VERSION};
+use super::{IP_HEADER_LEN, Ipv4Addr, Ipv4Protocol, VERSION};
 use crate::protocol::checksum16;
+
+pub const IPV4_PSEUDO_HEADER_LEN: usize = 12;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ipv4PseudoHeader {
+    src: Ipv4Addr,
+    dst: Ipv4Addr,
+    protocol: Ipv4Protocol,
+    length: u16,
+}
+
+impl Ipv4PseudoHeader {
+    pub const fn new(src: Ipv4Addr, dst: Ipv4Addr, protocol: Ipv4Protocol, length: u16) -> Self {
+        Self {
+            src,
+            dst,
+            protocol,
+            length,
+        }
+    }
+
+    pub fn to_bytes(self) -> [u8; IPV4_PSEUDO_HEADER_LEN] {
+        let mut bytes = [0; IPV4_PSEUDO_HEADER_LEN];
+        bytes[..4].copy_from_slice(self.src.as_bytes());
+        bytes[4..8].copy_from_slice(self.dst.as_bytes());
+        bytes[9] = self.protocol as u8;
+        bytes[10..].copy_from_slice(&self.length.to_be_bytes());
+        bytes
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, CopyGetters)]
 pub struct Ipv4Header {
@@ -25,7 +55,7 @@ pub struct Ipv4Header {
     #[getset(get_copy = "pub")]
     src: Ipv4Addr,
     #[getset(get_copy = "pub")]
-    dest: Ipv4Addr,
+    dst: Ipv4Addr,
 }
 
 impl TryFrom<&[u8]> for Ipv4Header {
@@ -62,13 +92,13 @@ impl TryFrom<&[u8]> for Ipv4Header {
             protocol: data[9],
             checksum: Some(u16::from_be_bytes([data[10], data[11]])),
             src: Ipv4Addr::new([data[12], data[13], data[14], data[15]]),
-            dest: Ipv4Addr::new([data[16], data[17], data[18], data[19]]),
+            dst: Ipv4Addr::new([data[16], data[17], data[18], data[19]]),
         })
     }
 }
 
 impl Ipv4Header {
-    pub fn new(protocol: u8, id: u16, src: Ipv4Addr, dest: Ipv4Addr) -> Self {
+    pub fn new(protocol: u8, id: u16, src: Ipv4Addr, dst: Ipv4Addr) -> Self {
         Self {
             version: VERSION,
             tos: 0,
@@ -79,7 +109,7 @@ impl Ipv4Header {
             protocol,
             checksum: None,
             src,
-            dest,
+            dst,
         }
     }
 
@@ -95,7 +125,7 @@ impl Ipv4Header {
         data[9] = self.protocol;
         data[10..12].copy_from_slice(&self.checksum.unwrap_or(0).to_be_bytes());
         data[12..16].copy_from_slice(self.src.as_bytes());
-        data[16..20].copy_from_slice(self.dest.as_bytes());
+        data[16..20].copy_from_slice(self.dst.as_bytes());
         if self.checksum.is_none() {
             let checksum = checksum16(&data);
             data[10..12].copy_from_slice(&checksum.to_be_bytes());

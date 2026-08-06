@@ -136,7 +136,7 @@ pub struct IcmpPacket<'a> {
     #[getset(get_copy = "pub")]
     src: Ipv4Addr,
     #[getset(get_copy = "pub")]
-    dest: Ipv4Addr,
+    dst: Ipv4Addr,
     #[getset(get_copy = "pub")]
     header: IcmpHeader,
     #[getset(get = "pub")]
@@ -149,7 +149,7 @@ impl<'a> IcmpPacket<'a> {
         let header = IcmpHeader::try_from(packet.payload())?;
         Ok(Self {
             src: packet.header().src(),
-            dest: packet.header().dest(),
+            dst: packet.header().dst(),
             header,
             payload: &packet.payload()[ICMP_HEADER_LEN..],
             data: packet.payload(),
@@ -176,7 +176,7 @@ impl Icmp {
     pub fn destination_unreachable<P: Platform + 'static, R: Random>(
         interface: &Ipv4Interface,
         offending: &[u8],
-        dest: Ipv4Addr,
+        dst: Ipv4Addr,
     ) -> Result<usize, Ipv4OutputError<R::Error>> {
         Self::output::<P, R>(
             interface,
@@ -185,14 +185,14 @@ impl Icmp {
             Self::UNUSED,
             offending,
             interface.unicast(),
-            dest,
+            dst,
         )
     }
 
     pub fn port_unreachable<P: Platform + 'static, R: Random>(
         interface: &Ipv4Interface,
         offending: &[u8],
-        dest: Ipv4Addr,
+        dst: Ipv4Addr,
     ) -> Result<usize, Ipv4OutputError<R::Error>> {
         Self::output::<P, R>(
             interface,
@@ -201,7 +201,7 @@ impl Icmp {
             Self::UNUSED,
             offending,
             interface.unicast(),
-            dest,
+            dst,
         )
     }
 
@@ -212,7 +212,7 @@ impl Icmp {
         dependent: u32,
         payload: &[u8],
         src: Ipv4Addr,
-        dest: Ipv4Addr,
+        dst: Ipv4Addr,
     ) -> Result<usize, Ipv4OutputError<R::Error>> {
         let mut data = Vec::with_capacity(ICMP_HEADER_LEN + payload.len());
         data.extend_from_slice(&[type_value, code, 0, 0]);
@@ -220,7 +220,7 @@ impl Icmp {
         data.extend_from_slice(payload);
         let checksum = checksum16(&data);
         data[2..4].copy_from_slice(&checksum.to_be_bytes());
-        Ipv4::output::<P, R>(interface, Ipv4Protocol::Icmp as u8, &data, src, dest)
+        Ipv4::output::<P, R>(interface, Ipv4Protocol::Icmp as u8, &data, src, dst)
     }
 
     pub fn input<P: Platform + 'static, R: Random>(
@@ -231,7 +231,7 @@ impl Icmp {
         debug!(
             "{} => {}, len={}",
             packet.src,
-            packet.dest,
+            packet.dst,
             packet.payload.len() + ICMP_HEADER_LEN
         );
         match IcmpType::try_from(packet.header.type_value()) {

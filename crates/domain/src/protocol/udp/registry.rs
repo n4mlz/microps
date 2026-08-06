@@ -26,7 +26,7 @@ pub struct ReceivedDatagram {
 }
 
 impl ReceivedDatagram {
-    pub(super) fn new(remote: Ipv4Endpoint, payload: Vec<u8>) -> Self {
+    pub fn new(remote: Ipv4Endpoint, payload: Vec<u8>) -> Self {
         Self { remote, payload }
     }
 }
@@ -93,7 +93,7 @@ impl<P: Platform> UdpPcbRegistry<P> {
         Ok(())
     }
 
-    pub(super) fn select(&self, local: Ipv4Endpoint) -> Option<UdpPcbKey> {
+    pub fn select(&self, local: Ipv4Endpoint) -> Option<UdpPcbKey> {
         self.pcbs
             .acquire()
             .expect("UDP PCB registry lock is infallible")
@@ -102,11 +102,7 @@ impl<P: Platform> UdpPcbRegistry<P> {
             .map(|(key, _)| key)
     }
 
-    pub(super) fn enqueue(
-        &self,
-        pcb: UdpPcbKey,
-        datagram: ReceivedDatagram,
-    ) -> Result<(), UdpPcbError> {
+    pub fn enqueue(&self, pcb: UdpPcbKey, datagram: ReceivedDatagram) -> Result<(), UdpPcbError> {
         self.pcbs
             .acquire()
             .expect("UDP PCB registry lock is infallible")
@@ -138,7 +134,7 @@ impl<P: Platform> UdpPcbRegistry<P> {
         }
     }
 
-    pub(super) fn assign_dynamic_port(&self, pcb: UdpPcbKey) -> Result<Ipv4Endpoint, UdpPcbError> {
+    pub fn assign_dynamic_port(&self, pcb: UdpPcbKey) -> Result<Ipv4Endpoint, UdpPcbError> {
         let mut pcbs = self
             .pcbs
             .acquire()

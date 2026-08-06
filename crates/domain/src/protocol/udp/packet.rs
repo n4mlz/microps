@@ -2,15 +2,17 @@ use alloc::vec::Vec;
 
 use getset::{CopyGetters, Getters};
 
-use super::{UDP_HEADER_LEN, UDP_PSEUDO_HEADER_LEN, UdpError, UdpHeader, UdpPseudoHeader};
-use crate::protocol::{Ipv4Endpoint, Ipv4Packet, checksum16};
+use super::{UDP_HEADER_LEN, UdpError, UdpHeader};
+use crate::protocol::{
+    IPV4_PSEUDO_HEADER_LEN, Ipv4Endpoint, Ipv4Packet, Ipv4Protocol, Ipv4PseudoHeader, checksum16,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Getters, CopyGetters)]
 pub struct UdpPacket<'a> {
     #[getset(get_copy = "pub")]
     src: Ipv4Endpoint,
     #[getset(get_copy = "pub")]
-    dest: Ipv4Endpoint,
+    dst: Ipv4Endpoint,
     #[getset(get_copy = "pub")]
     header: UdpHeader,
     #[getset(get = "pub")]
@@ -22,20 +24,25 @@ pub struct UdpPacket<'a> {
 impl<'a> UdpPacket<'a> {
     pub fn build(
         src: Ipv4Endpoint,
-        dest: Ipv4Endpoint,
+        dst: Ipv4Endpoint,
         payload: &[u8],
     ) -> Result<Vec<u8>, UdpError> {
         let length = UDP_HEADER_LEN
             .checked_add(payload.len())
             .filter(|length| *length <= usize::from(u16::MAX))
             .ok_or(UdpError::PayloadTooLarge { len: payload.len() })?;
-        let pseudo_header = UdpPseudoHeader::new(src.address(), dest.address(), length as u16);
+        let pseudo_header = Ipv4PseudoHeader::new(
+            src.address(),
+            dst.address(),
+            Ipv4Protocol::Udp,
+            length as u16,
+        );
         let mut data = Vec::with_capacity(length);
         data.extend_from_slice(
-            &UdpHeader::new(src.port(), dest.port(), length as u16, 0).to_bytes(),
+            &UdpHeader::new(src.port(), dst.port(), length as u16, 0).to_bytes(),
         );
         data.extend_from_slice(payload);
-        let mut checksum_data = Vec::with_capacity(UDP_PSEUDO_HEADER_LEN + length);
+        let mut checksum_data = Vec::with_capacity(IPV4_PSEUDO_HEADER_LEN + length);
         checksum_data.extend_from_slice(&pseudo_header.to_bytes());
         checksum_data.extend_from_slice(&data);
         let checksum = match checksum16(&checksum_data) {
@@ -62,9 +69,13 @@ impl<'a> UdpPacket<'a> {
 
         let data = &data[..length];
         if header.checksum() != 0 {
-            let pseudo_header =
-                UdpPseudoHeader::new(packet.header().src(), packet.header().dest(), length as u16);
-            let mut checksum_data = Vec::with_capacity(UDP_PSEUDO_HEADER_LEN + data.len());
+            let pseudo_header = Ipv4PseudoHeader::new(
+                packet.header().src(),
+                packet.header().dst(),
+                Ipv4Protocol::Udp,
+                length as u16,
+            );
+            let mut checksum_data = Vec::with_capacity(IPV4_PSEUDO_HEADER_LEN + data.len());
             checksum_data.extend_from_slice(&pseudo_header.to_bytes());
             checksum_data.extend_from_slice(data);
             if checksum16(&checksum_data) != 0 {
@@ -74,7 +85,7 @@ impl<'a> UdpPacket<'a> {
 
         Ok(Self {
             src: Ipv4Endpoint::new(packet.header().src(), header.src_port()),
-            dest: Ipv4Endpoint::new(packet.header().dest(), header.dest_port()),
+            dst: Ipv4Endpoint::new(packet.header().dst(), header.dst_port()),
             header,
             payload: &data[UDP_HEADER_LEN..],
             data,

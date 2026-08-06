@@ -22,13 +22,13 @@ fn mac_address_parses_and_formats_colon_hex() {
 #[test]
 fn ethernet_frame_round_trips_header_and_payload() {
     let src = MacAddr::from([2, 0, 0, 0, 0, 1]);
-    let dest = MacAddr::BROADCAST;
+    let dst = MacAddr::BROADCAST;
     let bytes =
-        EthernetFrame::build(src, dest, EtherType::Ipv4, &[0xaa, 0xbb]).expect("frame builds");
+        EthernetFrame::build(src, dst, EtherType::Ipv4, &[0xaa, 0xbb]).expect("frame builds");
     let frame = EthernetFrame::try_from(&bytes[..]).expect("frame parses");
 
     assert_eq!(frame.header().src(), src);
-    assert_eq!(frame.header().dest(), dest);
+    assert_eq!(frame.header().dst(), dst);
     assert_eq!(frame.header().ether_type(), EtherType::Ipv4 as u16);
     assert_eq!(frame.payload(), &[0xaa, 0xbb]);
 }
@@ -114,7 +114,7 @@ fn ipv4_packet_parses_a_valid_header() {
     assert_eq!(header.protocol(), 17);
     assert_eq!(header.checksum(), Some(0x7c6e));
     assert_eq!(header.src(), Ipv4Addr::from([192, 0, 2, 1]));
-    assert_eq!(header.dest(), Ipv4Addr::from([198, 51, 100, 2]));
+    assert_eq!(header.dst(), Ipv4Addr::from([198, 51, 100, 2]));
 
     let bytes = header.to_bytes(20);
     assert_eq!(bytes, valid_ipv4_header());
@@ -182,7 +182,7 @@ fn udp_packet_parses_declared_length_and_ports() {
     let packet =
         UdpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4[..]).unwrap()).expect("UDP packet parses");
     assert_eq!(packet.src().to_string(), "192.0.2.1:1234");
-    assert_eq!(packet.dest().to_string(), "192.0.2.2:5678");
+    assert_eq!(packet.dst().to_string(), "192.0.2.2:5678");
     assert_eq!(packet.payload(), b"hi!");
 }
 
@@ -237,8 +237,8 @@ fn tcp_packet_parses_header_options_and_payload() {
     let packet =
         TcpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4[..]).unwrap()).expect("TCP packet parses");
     assert_eq!(packet.src().to_string(), "192.0.2.1:1234");
-    assert_eq!(packet.dest().to_string(), "192.0.2.2:80");
-    assert_eq!(packet.header().sequence_number(), 0x0102_0304);
+    assert_eq!(packet.dst().to_string(), "192.0.2.2:80");
+    assert_eq!(packet.header().seq(), 0x0102_0304);
     assert_eq!(packet.header().header_len(), 24);
     assert_eq!(packet.header().flags(), TcpFlags::SYN);
     assert_eq!(packet.options(), &[2, 4, 5, 180]);
@@ -278,6 +278,29 @@ fn tcp_packet_rejects_short_headers_and_bad_checksums() {
 }
 
 #[test]
+fn tcp_packet_builds_a_valid_checksum() {
+    let src = Ipv4Endpoint::new(Ipv4Addr::from([192, 0, 2, 1]), 1234);
+    let dst = Ipv4Endpoint::new(Ipv4Addr::from([192, 0, 2, 2]), 80);
+    let tcp =
+        TcpPacket::build(src, dst, 1, 0, TcpFlags::SYN, 4096, b"hi").expect("TCP segment builds");
+    let ipv4 = Ipv4Packet::build(
+        Ipv4Protocol::Tcp as u8,
+        &tcp,
+        0,
+        src.address(),
+        dst.address(),
+    )
+    .expect("IPv4 packet builds");
+
+    let packet = TcpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4[..]).unwrap())
+        .expect("built TCP packet parses");
+    assert_eq!(packet.src(), src);
+    assert_eq!(packet.dst(), dst);
+    assert_eq!(packet.header().flags(), TcpFlags::SYN);
+    assert_eq!(packet.payload(), b"hi");
+}
+
+#[test]
 fn icmp_type_numbers_are_typed() {
     assert_eq!(IcmpType::Echo as u8, 8);
     assert_eq!(IcmpType::try_from(8), Ok(IcmpType::Echo));
@@ -297,7 +320,7 @@ fn icmp_packet_preserves_ipv4_addresses_and_payload() {
         &[0x08, 0x00, 0x4d, 0x42, 0x00, 0x01, 0x00, 0x01, 0xaa, 0xbb],
         0,
         header.src(),
-        header.dest(),
+        header.dst(),
     )
     .expect("packet builds");
     let packet =
@@ -305,7 +328,7 @@ fn icmp_packet_preserves_ipv4_addresses_and_payload() {
             .expect("ICMP packet parses");
 
     assert_eq!(packet.src(), Ipv4Addr::from([192, 0, 2, 1]));
-    assert_eq!(packet.dest(), Ipv4Addr::from([192, 0, 2, 2]));
+    assert_eq!(packet.dst(), Ipv4Addr::from([192, 0, 2, 2]));
     assert_eq!(packet.payload(), &[0xaa, 0xbb]);
 }
 

@@ -21,11 +21,11 @@ pub struct TcpHeader {
     #[getset(get_copy = "pub")]
     src_port: u16,
     #[getset(get_copy = "pub")]
-    dest_port: u16,
+    dst_port: u16,
     #[getset(get_copy = "pub")]
-    sequence_number: u32,
+    seq: u32,
     #[getset(get_copy = "pub")]
-    acknowledgment_number: u32,
+    ack: u32,
     #[getset(get_copy = "pub")]
     data_offset: u8,
     #[getset(get_copy = "pub")]
@@ -39,8 +39,44 @@ pub struct TcpHeader {
 }
 
 impl TcpHeader {
+    pub fn new(
+        src_port: u16,
+        dst_port: u16,
+        seq: u32,
+        ack: u32,
+        flags: TcpFlags,
+        window_size: u16,
+        checksum: u16,
+    ) -> Self {
+        Self {
+            src_port,
+            dst_port,
+            seq,
+            ack,
+            data_offset: 5 << 4,
+            flags,
+            window_size,
+            checksum,
+            urgent_pointer: 0,
+        }
+    }
+
     pub fn header_len(&self) -> usize {
         usize::from(self.data_offset >> 4) * 4
+    }
+
+    pub fn to_bytes(self) -> [u8; TCP_HEADER_LEN] {
+        let mut bytes = [0; TCP_HEADER_LEN];
+        bytes[..2].copy_from_slice(&self.src_port.to_be_bytes());
+        bytes[2..4].copy_from_slice(&self.dst_port.to_be_bytes());
+        bytes[4..8].copy_from_slice(&self.seq.to_be_bytes());
+        bytes[8..12].copy_from_slice(&self.ack.to_be_bytes());
+        bytes[12] = self.data_offset;
+        bytes[13] = self.flags.bits();
+        bytes[14..16].copy_from_slice(&self.window_size.to_be_bytes());
+        bytes[16..18].copy_from_slice(&self.checksum.to_be_bytes());
+        bytes[18..20].copy_from_slice(&self.urgent_pointer.to_be_bytes());
+        bytes
     }
 }
 
@@ -62,9 +98,9 @@ impl TryFrom<&[u8]> for TcpHeader {
 
         Ok(Self {
             src_port: u16::from_be_bytes([data[0], data[1]]),
-            dest_port: u16::from_be_bytes([data[2], data[3]]),
-            sequence_number: u32::from_be_bytes(data[4..8].try_into().unwrap()),
-            acknowledgment_number: u32::from_be_bytes(data[8..12].try_into().unwrap()),
+            dst_port: u16::from_be_bytes([data[2], data[3]]),
+            seq: u32::from_be_bytes(data[4..8].try_into().unwrap()),
+            ack: u32::from_be_bytes(data[8..12].try_into().unwrap()),
             data_offset,
             flags: TcpFlags::from_bits_truncate(data[13]),
             window_size: u16::from_be_bytes([data[14], data[15]]),
@@ -86,4 +122,6 @@ pub enum TcpError {
     HeaderTruncated { len: usize, header_len: usize },
     #[error("invalid TCP checksum")]
     InvalidChecksum,
+    #[error("TCP payload is too large: {len} bytes")]
+    PayloadTooLarge { len: usize },
 }
