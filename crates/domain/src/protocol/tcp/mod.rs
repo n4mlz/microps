@@ -8,7 +8,7 @@ pub use registry::*;
 use thiserror::Error;
 
 use super::{Ipv4Addr, Ipv4Endpoint, Ipv4Interface, Ipv4Packet, Ipv4Protocol};
-use crate::{Platform, Random, debug, debugdump, error};
+use crate::{Platform, Random, debug, debugdump};
 
 pub const TCP_HEADER_LEN: usize = 20;
 
@@ -40,6 +40,26 @@ pub enum TcpOpenError {
     ActiveOpenUnsupported,
     #[error("TCP PCB operation failed: {0}")]
     Pcb(#[from] TcpPcbError),
+    #[error("TCP route or interface is unavailable")]
+    NetworkUnavailable,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum TcpSendError<E> {
+    #[error("TCP PCB operation failed: {0}")]
+    Pcb(#[from] TcpPcbError),
+    #[error("TCP PCB is not established: {0:?}")]
+    State(TcpState),
+    #[error("TCP segment output failed: {0}")]
+    Output(#[from] TcpOutputError<E>),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum TcpReceiveError {
+    #[error("TCP PCB operation failed: {0}")]
+    Pcb(#[from] TcpPcbError),
+    #[error("TCP PCB is not established: {0:?}")]
+    State(TcpState),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -50,12 +70,18 @@ pub enum TcpCloseError<E> {
     Output(#[from] TcpOutputError<E>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-pub enum TcpInputError {
+#[derive(Debug, Error)]
+pub enum TcpInputError<E> {
     #[error("invalid TCP segment: {0}")]
     Packet(#[from] TcpError),
+    #[error("TCP PCB operation failed: {0}")]
+    Pcb(#[from] TcpPcbError),
     #[error("TCP segments must use unicast addresses")]
     Broadcast,
+    #[error("TCP ISS generation failed")]
+    Random(E),
+    #[error("TCP response output failed: {0}")]
+    Output(#[from] TcpOutputError<E>),
 }
 
 pub struct Tcp;
@@ -82,6 +108,9 @@ impl Tcp {
         loop {
             let state = P::stack().tcp_pcbs.get(pcb)?.state();
             if state == TcpState::Established {
+                let mut established = P::stack().tcp_pcbs.get(pcb)?;
+                established.set_mss(Self::mss::<P>(established.remote())?);
+                P::stack().tcp_pcbs.replace(pcb, established)?;
                 return Ok(pcb);
             }
             if state != TcpState::Listen && state != TcpState::SynReceived {
@@ -101,10 +130,92 @@ impl Tcp {
         output.map(|_| ()).map_err(TcpCloseError::Output)
     }
 
+    pub fn send<P: Platform + Random + 'static>(
+        pcb: TcpPcbKey,
+        data: &[u8],
+    ) -> Result<usize, TcpSendError<<P as Random>::Error>> {
+        let current = P::stack().tcp_pcbs.get(pcb)?;
+        if current.state() != TcpState::Established {
+            return Err(TcpSendError::State(current.state()));
+        }
+        if data.is_empty() {
+            return Ok(0);
+        }
+        let mut sent = 0;
+        while sent < data.len() {
+            let current = P::stack().tcp_pcbs.get(pcb)?;
+            if current.state() != TcpState::Established {
+                return Err(TcpSendError::State(current.state()));
+            }
+            let in_flight = current.snd_nxt().wrapping_sub(current.snd_una());
+            let capacity = u32::from(current.snd_wnd()).saturating_sub(in_flight) as usize;
+            if capacity == 0 {
+                P::stack().tcp_pcbs.wait_for_update(pcb)?;
+                continue;
+            }
+            let length = capacity.min(current.mss()).min(data.len() - sent);
+            Self::output::<P>(
+                &current,
+                TcpFlags::ACK | TcpFlags::PSH,
+                &data[sent..sent + length],
+            )?;
+            let mut updated = P::stack().tcp_pcbs.get(pcb)?;
+            updated.advance_send(length);
+            P::stack().tcp_pcbs.replace(pcb, updated)?;
+            sent += length;
+        }
+        Ok(sent)
+    }
+
+    fn mss<P: Platform + 'static>(remote: Ipv4Endpoint) -> Result<usize, TcpOpenError> {
+        let route = P::stack()
+            .ipv4_routes
+            .lookup(remote.address())
+            .ok_or(TcpOpenError::NetworkUnavailable)?;
+        let interface = P::stack()
+            .interfaces
+            .interface_as::<Ipv4Interface>(route.interface())
+            .ok_or(TcpOpenError::NetworkUnavailable)?;
+        let device = interface.device().ok_or(TcpOpenError::NetworkUnavailable)?;
+        let devices = P::stack()
+            .devices
+            .acquire()
+            .expect("device registry lock is infallible");
+        let mtu = devices
+            .get(device)
+            .ok_or(TcpOpenError::NetworkUnavailable)?
+            .meta()
+            .mtu();
+        mtu.checked_sub(20 + TCP_HEADER_LEN)
+            .filter(|mss| *mss != 0)
+            .ok_or(TcpOpenError::NetworkUnavailable)
+    }
+
+    pub fn receive<P: Platform + 'static>(
+        pcb: TcpPcbKey,
+        buffer: &mut [u8],
+    ) -> Result<usize, TcpReceiveError> {
+        loop {
+            let mut current = P::stack().tcp_pcbs.get(pcb)?;
+            if current.state() != TcpState::Established {
+                return Err(TcpReceiveError::State(current.state()));
+            }
+            if buffer.is_empty() {
+                return Ok(0);
+            }
+            let length = current.receive(buffer);
+            if length != 0 {
+                P::stack().tcp_pcbs.replace(pcb, current)?;
+                return Ok(length);
+            }
+            P::stack().tcp_pcbs.wait_for_update(pcb)?;
+        }
+    }
+
     pub fn input<P: Platform + Random + 'static>(
         packet: Ipv4Packet<'_>,
         interface: &Ipv4Interface,
-    ) -> Result<(), TcpInputError> {
+    ) -> Result<(), TcpInputError<<P as Random>::Error>> {
         let packet = TcpPacket::from_ipv4(packet)?;
         if packet.src().address() == Ipv4Addr::BROADCAST
             || packet.src().address() == interface.broadcast()
@@ -149,12 +260,13 @@ impl Tcp {
                 seq: packet.header().seq(),
                 ack: packet.header().ack(),
                 length: length as u32,
+                window: packet.header().window_size(),
             },
             packet.header().flags(),
             packet.dst(),
             packet.src(),
-        );
-        Ok(())
+            packet.payload(),
+        )
     }
 
     fn segment_arrives<P: Platform + Random + 'static>(
@@ -162,7 +274,8 @@ impl Tcp {
         flags: TcpFlags,
         local: Ipv4Endpoint,
         remote: Ipv4Endpoint,
-    ) {
+        data: &[u8],
+    ) -> Result<(), TcpInputError<<P as Random>::Error>> {
         let pcb = P::stack().tcp_pcbs.select(local, remote);
         let Some((pcb, state)) = pcb else {
             return Self::respond_to_unknown::<P>(segment, flags, local, remote);
@@ -170,72 +283,60 @@ impl Tcp {
         if state == TcpState::Closed {
             return Self::respond_to_unknown::<P>(segment, flags, local, remote);
         }
-        if flags.contains(TcpFlags::RST) {
-            return;
-        }
+        let mut pcb_state = P::stack().tcp_pcbs.get(pcb)?;
         match state {
             TcpState::Listen => {
                 if flags.contains(TcpFlags::ACK) {
-                    if let Err(error_value) = Self::output_segment::<P>(
-                        segment.ack,
-                        0,
-                        TcpFlags::RST,
-                        0,
-                        &[],
-                        local,
-                        remote,
-                    ) {
-                        error!("{error_value}");
-                    }
+                    Self::output_segment::<P>(segment.ack, 0, TcpFlags::RST, 0, &[], local, remote)
+                        .map(|_| ())?;
                 } else if flags.contains(TcpFlags::SYN) {
-                    let Ok(iss) = P::random32() else {
-                        error!("TCP ISS generation failed");
-                        return;
-                    };
-                    let Ok(mut accepted) = P::stack().tcp_pcbs.get(pcb) else {
-                        return;
-                    };
+                    let iss = P::random32().map_err(TcpInputError::Random)?;
+                    let mut accepted = P::stack().tcp_pcbs.get(pcb)?;
                     accepted.accept_syn(local, remote, segment.seq, iss);
-                    if P::stack().tcp_pcbs.replace(pcb, accepted).is_err() {
-                        return;
-                    }
-                    if let Err(error_value) =
-                        Self::output::<P>(&accepted, TcpFlags::SYN | TcpFlags::ACK, &[])
-                    {
-                        error!("{error_value}");
-                    }
+                    P::stack().tcp_pcbs.replace(pcb, accepted.clone())?;
+                    Self::output::<P>(&accepted, TcpFlags::SYN | TcpFlags::ACK, &[]).map(|_| ())?;
                 }
             }
             TcpState::SynSent => {}
-            TcpState::SynReceived => {
-                if !flags.contains(TcpFlags::ACK) {
-                    return;
+            TcpState::SynReceived | TcpState::Established => {
+                if !pcb_state.accept_segment(segment.seq, segment.length) {
+                    if !flags.contains(TcpFlags::RST) {
+                        Self::output::<P>(&pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
+                    }
+                    return Ok(());
                 }
-                let Ok(mut accepted) = P::stack().tcp_pcbs.get(pcb) else {
-                    return;
-                };
-                if accepted.accept_ack(segment.ack) {
-                    if let Err(error_value) = P::stack().tcp_pcbs.replace(pcb, accepted) {
-                        error!("{error_value}");
-                    } else {
-                        debug!("TCP PCB state: {:?}", TcpState::Established);
+                if flags.contains(TcpFlags::RST) {
+                    return Ok(());
+                }
+                if flags.contains(TcpFlags::ACK) {
+                    match pcb_state.accept_ack(segment.seq, segment.ack, segment.window) {
+                        TcpAckResult::TooNew => {
+                            Self::output::<P>(&pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
+                            return Ok(());
+                        }
+                        TcpAckResult::Accepted => {
+                            if pcb_state.state() == TcpState::Established {
+                                debug!("TCP PCB state: {:?}", TcpState::Established);
+                            }
+                        }
+                        TcpAckResult::Old | TcpAckResult::Unchanged | TcpAckResult::Ignored => {}
                     }
+                    P::stack().tcp_pcbs.replace(pcb, pcb_state.clone())?;
                 } else {
-                    if let Err(error_value) = Self::output_segment::<P>(
-                        segment.ack,
-                        0,
-                        TcpFlags::RST,
-                        0,
-                        &[],
-                        local,
-                        remote,
-                    ) {
-                        error!("{error_value}");
+                    return Ok(());
+                }
+                if state == TcpState::Established && !data.is_empty() {
+                    if !pcb_state.accept_payload(segment.seq, data) {
+                        Self::output::<P>(&pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
+                        return Ok(());
                     }
+                    P::stack().tcp_pcbs.replace(pcb, pcb_state.clone())?;
+                    Self::output::<P>(&pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
                 }
             }
             _ => {}
         }
+        Ok(())
     }
 
     fn respond_to_unknown<P: Platform + Random + 'static>(
@@ -243,9 +344,9 @@ impl Tcp {
         flags: TcpFlags,
         local: Ipv4Endpoint,
         remote: Ipv4Endpoint,
-    ) {
+    ) -> Result<(), TcpInputError<<P as Random>::Error>> {
         if flags.contains(TcpFlags::RST) {
-            return;
+            return Ok(());
         }
         let (seq, ack, response_flags) = if flags.contains(TcpFlags::ACK) {
             (segment.ack, 0, TcpFlags::RST)
@@ -256,11 +357,8 @@ impl Tcp {
                 TcpFlags::RST | TcpFlags::ACK,
             )
         };
-        if let Err(error_value) =
-            Self::output_segment::<P>(seq, ack, response_flags, 0, &[], local, remote)
-        {
-            error!("{error_value}");
-        }
+        Self::output_segment::<P>(seq, ack, response_flags, 0, &[], local, remote).map(|_| ())?;
+        Ok(())
     }
 
     fn output<P: Platform + Random + 'static>(
@@ -322,6 +420,7 @@ struct SegmentInfo {
     seq: u32,
     ack: u32,
     length: u32,
+    window: u16,
 }
 
 #[derive(Debug, thiserror::Error)]
