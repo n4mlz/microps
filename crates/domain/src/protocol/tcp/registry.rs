@@ -133,7 +133,10 @@ impl TcpPcb {
     }
 
     pub fn accept_ack(&mut self, seq: u32, ack: u32, window: u16) -> TcpAckResult {
-        if self.state != TcpState::SynReceived && self.state != TcpState::Established {
+        if !matches!(
+            self.state,
+            TcpState::SynReceived | TcpState::Established | TcpState::CloseWait
+        ) {
             return TcpAckResult::Ignored;
         }
         let accepted = if self.state == TcpState::SynReceived {
@@ -172,6 +175,17 @@ impl TcpPcb {
         true
     }
 
+    pub fn accept_fin(&mut self, seq: u32, payload_len: usize) -> bool {
+        if self.rcv_nxt != seq.wrapping_add(payload_len as u32) {
+            return false;
+        }
+        self.rcv_nxt = self.rcv_nxt.wrapping_add(1);
+        if matches!(self.state, TcpState::SynReceived | TcpState::Established) {
+            self.state = TcpState::CloseWait;
+        }
+        true
+    }
+
     pub fn receive(&mut self, buffer: &mut [u8]) -> usize {
         let length = buffer.len().min(self.receive_buffer.len());
         for byte in &mut buffer[..length] {
@@ -179,6 +193,15 @@ impl TcpPcb {
         }
         self.rcv_wnd = self.rcv_wnd.saturating_add(length as u16);
         length
+    }
+
+    pub fn has_received_data(&self) -> bool {
+        !self.receive_buffer.is_empty()
+    }
+
+    pub fn enter_last_ack(&mut self) {
+        self.advance_send(1);
+        self.state = TcpState::LastAck;
     }
 
     pub fn set_mss(&mut self, mss: usize) {
