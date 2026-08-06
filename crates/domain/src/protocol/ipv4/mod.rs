@@ -159,8 +159,21 @@ impl Ipv4 {
                 }
             }
             Ok(Ipv4Protocol::Udp) => {
-                if let Err(error) = Udp::input(packet) {
-                    error!("{error}");
+                if let Err(error) = Udp::input::<P>(packet) {
+                    match error {
+                        crate::protocol::UdpInputError::PortUnreachable
+                            if data.len() >= IP_HEADER_LEN + crate::protocol::UDP_HEADER_LEN =>
+                        {
+                            let offending =
+                                &data[..IP_HEADER_LEN + crate::protocol::UDP_HEADER_LEN];
+                            if let Err(error) =
+                                Icmp::port_unreachable::<P, P>(interface, offending, header.src())
+                            {
+                                error!("{error}");
+                            }
+                        }
+                        error => error!("{error}"),
+                    }
                 }
             }
             _ if data.len() >= IP_HEADER_LEN + crate::protocol::ICMP_HEADER_LEN => {

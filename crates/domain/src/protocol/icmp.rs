@@ -189,6 +189,22 @@ impl Icmp {
         )
     }
 
+    pub fn port_unreachable<P: Platform + 'static, R: Random>(
+        interface: &Ipv4Interface,
+        offending: &[u8],
+        dest: Ipv4Addr,
+    ) -> Result<usize, Ipv4OutputError<R::Error>> {
+        Self::output::<P, R>(
+            interface,
+            IcmpType::DestinationUnreachable as u8,
+            IcmpDestinationUnreachableCode::PortUnreachable as u8,
+            Self::UNUSED,
+            offending,
+            interface.unicast(),
+            dest,
+        )
+    }
+
     pub fn output<P: Platform + 'static, R: Random>(
         interface: &Ipv4Interface,
         type_value: u8,

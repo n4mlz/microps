@@ -1,7 +1,10 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
-use microps::{Irq, IrqLine, Lock, Platform, Random, Stack};
+use microps::{
+    Irq, IrqLine, Lock, Platform, Random, Stack,
+    protocol::{Ipv4Addr, Ipv4Endpoint, UdpPcbError},
+};
 
 struct MockRuntime;
 
@@ -80,4 +83,22 @@ fn stack_lifecycle_calls_runtime_hooks() {
 
     assert_eq!(INIT_CALLS.load(Ordering::SeqCst), 1);
     assert_eq!(SHUTDOWN_CALLS.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn udp_registry_opens_binds_and_releases_sockets() {
+    let stack = MockRuntime::stack();
+    let first = stack.udp_pcbs.open();
+    let second = stack.udp_pcbs.open();
+    let endpoint = Ipv4Endpoint::new(Ipv4Addr::from([192, 0, 2, 2]), 7);
+
+    assert_eq!(stack.udp_pcbs.bind(first, endpoint), Ok(()));
+    assert_eq!(
+        stack.udp_pcbs.bind(second, endpoint),
+        Err(UdpPcbError::AlreadyBound)
+    );
+    assert_eq!(stack.udp_pcbs.close(first), Ok(()));
+    assert_eq!(stack.udp_pcbs.bind(second, endpoint), Ok(()));
+    assert_eq!(stack.udp_pcbs.close(second), Ok(()));
+    assert_eq!(stack.udp_pcbs.close(second), Err(UdpPcbError::NotFound));
 }

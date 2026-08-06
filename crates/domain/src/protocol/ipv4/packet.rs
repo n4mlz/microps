@@ -1,19 +1,21 @@
 use alloc::vec::Vec;
 
-use getset::CopyGetters;
+use getset::{CopyGetters, Getters};
 
 use super::{IP_HEADER_LEN, Ipv4Error, Ipv4Header};
 
 /// An IPv4 packet with parsed header fields and a borrowed payload.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, CopyGetters)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Getters, CopyGetters)]
 pub struct Ipv4Packet<'a> {
     #[getset(get_copy = "pub")]
     header: Ipv4Header,
     #[getset(get_copy = "pub")]
     payload: &'a [u8],
+    #[getset(get = "pub")]
+    data: &'a [u8],
 }
 
-impl Ipv4Packet<'_> {
+impl<'a> Ipv4Packet<'a> {
     pub fn packet_len(&self) -> usize {
         IP_HEADER_LEN + self.payload.len()
     }
@@ -62,6 +64,7 @@ impl<'a> TryFrom<&'a [u8]> for Ipv4Packet<'a> {
         Ok(Self {
             header,
             payload: &data[IP_HEADER_LEN..total_len],
+            data: &data[..total_len],
         })
     }
 }
