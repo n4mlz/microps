@@ -118,7 +118,7 @@ fn main() {
     });
     while !should_terminate() {
         if let Err(error_value) = Tcp::tick::<LinuxPlatform>() {
-            error!("TCP retransmission failure: {error_value}");
+            error!("TCP retrans failure: {error_value}");
         }
         thread::sleep(Duration::from_millis(100));
     }

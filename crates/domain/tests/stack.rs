@@ -178,12 +178,12 @@ fn tcp_pcb_retransmits_with_backoff_and_cleans_up_acked_data() {
     let mut pcb = TcpPcb::new();
 
     pcb.accept_syn(local, remote, 100, 200);
-    pcb.queue_retransmission(200, TcpFlags::SYN, &[], 0);
-    assert!(pcb.due_retransmissions(199_999).is_empty());
-    assert_eq!(pcb.due_retransmissions(200_000).len(), 1);
-    assert!(pcb.due_retransmissions(599_999).is_empty());
-    assert_eq!(pcb.due_retransmissions(600_000).len(), 1);
+    pcb.queue_retrans(200, TcpFlags::SYN, &[], 0);
+    assert!(pcb.due_retrans(199_999).is_empty());
+    assert_eq!(pcb.due_retrans(200_000).len(), 1);
+    assert!(pcb.due_retrans(599_999).is_empty());
+    assert_eq!(pcb.due_retrans(600_000).len(), 1);
 
     assert_eq!(pcb.accept_ack(101, 201, 4096), TcpAckResult::Accepted);
-    assert!(pcb.due_retransmissions(12_000_001).is_empty());
+    assert!(pcb.due_retrans(12_000_001).is_empty());
 }

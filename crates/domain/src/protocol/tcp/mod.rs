@@ -213,26 +213,19 @@ impl Tcp {
 
     pub fn tick<P: Platform + Random + 'static>() -> Result<(), TcpOutputError<<P as Random>::Error>>
     {
-        for (key, mut pcb) in P::stack().tcp_pcbs.snapshots() {
-            let retransmissions = pcb.due_retransmissions(P::monotonic_time_microseconds());
-            if retransmissions.is_empty() && pcb.state() != TcpState::Closed {
-                continue;
-            }
-            P::stack().tcp_pcbs.replace(key, pcb.clone()).ok();
-            if pcb.state() == TcpState::Closed {
-                continue;
-            }
-            for retransmission in retransmissions {
-                Self::output_segment::<P>(
-                    retransmission.seq,
-                    pcb.rcv_nxt(),
-                    retransmission.flags,
-                    pcb.rcv_wnd(),
-                    &retransmission.payload,
-                    pcb.local(),
-                    pcb.remote(),
-                )?;
-            }
+        for retrans in P::stack()
+            .tcp_pcbs
+            .due_retrans(P::monotonic_time_microseconds())
+        {
+            Self::output_segment::<P>(
+                retrans.seq,
+                retrans.ack,
+                retrans.flags,
+                retrans.window,
+                &retrans.payload,
+                retrans.local,
+                retrans.remote,
+            )?;
         }
         Ok(())
     }
@@ -398,7 +391,7 @@ impl Tcp {
             pcb.snd_nxt()
         };
         if flags.intersects(TcpFlags::SYN | TcpFlags::FIN) || !payload.is_empty() {
-            pcb.queue_retransmission(seq, flags, payload, P::monotonic_time_microseconds());
+            pcb.queue_retrans(seq, flags, payload, P::monotonic_time_microseconds());
         }
         Self::output_segment::<P>(
             seq,
