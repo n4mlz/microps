@@ -34,14 +34,16 @@ pub enum TcpOpenMode {
     Passive,
 }
 
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub enum TcpOpenError {
-    #[error("TCP active open is not implemented")]
-    ActiveOpenUnsupported,
+#[derive(Debug, thiserror::Error)]
+pub enum TcpOpenError<E> {
     #[error("TCP PCB operation failed: {0}")]
     Pcb(#[from] TcpPcbError),
     #[error("TCP route or interface is unavailable")]
     NetworkUnavailable,
+    #[error("TCP ISS generation failed")]
+    Random(E),
+    #[error("TCP segment output failed: {0}")]
+    Output(#[from] TcpOutputError<E>),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -91,19 +93,22 @@ impl Tcp {
         local: Ipv4Endpoint,
         remote: Ipv4Endpoint,
         mode: TcpOpenMode,
-    ) -> Result<TcpPcbKey, TcpOpenError> {
+    ) -> Result<TcpPcbKey, TcpOpenError<<P as Random>::Error>> {
         let pcb = P::stack().tcp_pcbs.open();
         if mode == TcpOpenMode::Active {
-            P::stack().tcp_pcbs.close(pcb);
-            return Err(TcpOpenError::ActiveOpenUnsupported);
+            if let Err(error_value) = Self::start_active::<P>(pcb, local, remote) {
+                P::stack().tcp_pcbs.close(pcb);
+                return Err(error_value);
+            }
+        } else {
+            if P::stack().tcp_pcbs.endpoint_in_use(pcb, local, remote) {
+                P::stack().tcp_pcbs.close(pcb);
+                return Err(TcpOpenError::Pcb(TcpPcbError::AlreadyBound));
+            }
+            let mut listener = P::stack().tcp_pcbs.get(pcb)?;
+            listener.listen(local, remote);
+            P::stack().tcp_pcbs.replace(pcb, listener)?;
         }
-        if P::stack().tcp_pcbs.endpoint_in_use(pcb, local, remote) {
-            P::stack().tcp_pcbs.close(pcb);
-            return Err(TcpOpenError::Pcb(TcpPcbError::AlreadyBound));
-        }
-        let mut listener = P::stack().tcp_pcbs.get(pcb)?;
-        listener.listen(local, remote);
-        P::stack().tcp_pcbs.replace(pcb, listener)?;
 
         loop {
             let state = P::stack().tcp_pcbs.get(pcb)?.state();
@@ -113,12 +118,42 @@ impl Tcp {
                 P::stack().tcp_pcbs.replace(pcb, established)?;
                 return Ok(pcb);
             }
-            if state != TcpState::Listen && state != TcpState::SynReceived {
+            if state != TcpState::Listen
+                && state != TcpState::SynSent
+                && state != TcpState::SynReceived
+            {
                 P::stack().tcp_pcbs.close(pcb);
                 return Err(TcpOpenError::Pcb(TcpPcbError::NotFound));
             }
             P::stack().tcp_pcbs.wait_for_state_change(pcb, state)?;
         }
+    }
+
+    fn start_active<P: Platform + Random + 'static>(
+        pcb: TcpPcbKey,
+        mut local: Ipv4Endpoint,
+        remote: Ipv4Endpoint,
+    ) -> Result<(), TcpOpenError<<P as Random>::Error>> {
+        if local.address() == Ipv4Addr::ANY {
+            let route = P::stack()
+                .ipv4_routes
+                .lookup(remote.address())
+                .ok_or(TcpOpenError::NetworkUnavailable)?;
+            let interface = P::stack()
+                .interfaces
+                .interface_as::<Ipv4Interface>(route.interface())
+                .ok_or(TcpOpenError::NetworkUnavailable)?;
+            local = Ipv4Endpoint::new(interface.unicast(), local.port());
+        }
+        local = P::stack()
+            .tcp_pcbs
+            .assign_dynamic_port(pcb, local, remote)?;
+        let iss = P::random32().map_err(TcpOpenError::Random)?;
+        let mut active = P::stack().tcp_pcbs.get(pcb)?;
+        active.connect(local, remote, iss);
+        Self::output::<P>(&mut active, TcpFlags::SYN, &[])?;
+        P::stack().tcp_pcbs.replace(pcb, active)?;
+        Ok(())
     }
 
     pub fn close<P: Platform + Random + 'static>(
@@ -166,7 +201,9 @@ impl Tcp {
         Ok(sent)
     }
 
-    fn mss<P: Platform + 'static>(remote: Ipv4Endpoint) -> Result<usize, TcpOpenError> {
+    fn mss<P: Platform + 'static>(
+        remote: Ipv4Endpoint,
+    ) -> Result<usize, TcpOpenError<<P as Random>::Error>> {
         let route = P::stack()
             .ipv4_routes
             .lookup(remote.address())
@@ -316,7 +353,37 @@ impl Tcp {
                     P::stack().tcp_pcbs.replace(pcb, accepted)?;
                 }
             }
-            TcpState::SynSent => {}
+            TcpState::SynSent => {
+                let ack_acceptable = if flags.contains(TcpFlags::ACK) {
+                    if segment.ack <= pcb_state.iss() || segment.ack > pcb_state.snd_nxt() {
+                        Self::output_segment::<P>(
+                            segment.ack,
+                            0,
+                            TcpFlags::RST,
+                            0,
+                            &[],
+                            local,
+                            remote,
+                        )
+                        .map(|_| ())?;
+                        return Ok(());
+                    }
+                    true
+                } else {
+                    false
+                };
+                if !flags.contains(TcpFlags::SYN) {
+                    return Ok(());
+                }
+                if ack_acceptable {
+                    pcb_state.accept_syn_ack(segment.seq, segment.ack, segment.window);
+                }
+                if pcb_state.state() == TcpState::Established {
+                    P::stack().tcp_pcbs.replace(pcb, pcb_state.clone())?;
+                    Self::output::<P>(&mut pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
+                    debug!("TCP PCB state: {:?}", TcpState::Established);
+                }
+            }
             TcpState::SynReceived | TcpState::Established => {
                 if !pcb_state.accept_segment(segment.seq, segment.length) {
                     if !flags.contains(TcpFlags::RST) {

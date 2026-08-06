@@ -5,6 +5,9 @@ mod ipv4;
 mod tcp;
 mod udp;
 
+pub const DYNAMIC_PORT_MIN: u16 = 49152;
+pub const DYNAMIC_PORT_MAX: u16 = u16::MAX;
+
 pub use arp::*;
 pub use ethernet::*;
 pub use icmp::*;

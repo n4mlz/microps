@@ -9,9 +9,6 @@ use crate::{
     protocol::{Ipv4Addr, Ipv4Endpoint},
 };
 
-pub const DYNAMIC_PORT_MIN: u16 = 49152;
-pub const DYNAMIC_PORT_MAX: u16 = u16::MAX;
-
 new_key_type! {
     /// Stable key for a UDP PCB owned by a [`UdpPcbRegistry`].
     pub struct UdpPcbKey;
@@ -143,7 +140,7 @@ impl<P: Platform> UdpPcbRegistry<P> {
         if local.port() != 0 {
             return Ok(local);
         }
-        for port in DYNAMIC_PORT_MIN..=DYNAMIC_PORT_MAX {
+        for port in crate::protocol::DYNAMIC_PORT_MIN..=crate::protocol::DYNAMIC_PORT_MAX {
             let candidate = Ipv4Endpoint::new(local.address(), port);
             if !pcbs
                 .iter()
