@@ -1,10 +1,14 @@
 mod header;
 mod packet;
+mod pcb;
 mod registry;
+mod retrans;
 
 pub use header::*;
 pub use packet::*;
+pub use pcb::*;
 pub use registry::*;
+pub use retrans::*;
 use thiserror::Error;
 
 use super::{Ipv4Addr, Ipv4Endpoint, Ipv4Interface, Ipv4Packet, Ipv4Protocol};
