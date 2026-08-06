@@ -1,10 +1,7 @@
 use core::convert::Infallible;
-use std::{
-    sync::{
-        Arc, OnceLock,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::{SystemTime, UNIX_EPOCH},
+use std::sync::{
+    Arc, OnceLock,
+    atomic::{AtomicBool, Ordering},
 };
 
 use microps::{Platform, Stdout};
@@ -57,11 +54,4 @@ impl Platform for LinuxPlatform {
     }
 
     fn shutdown() {}
-
-    fn now() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock is before UNIX epoch")
-            .as_secs()
-    }
 }

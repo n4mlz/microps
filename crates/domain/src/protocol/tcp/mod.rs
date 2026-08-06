@@ -124,8 +124,8 @@ impl Tcp {
     pub fn close<P: Platform + Random + 'static>(
         pcb: TcpPcbKey,
     ) -> Result<(), TcpCloseError<<P as Random>::Error>> {
-        let snapshot = P::stack().tcp_pcbs.get(pcb)?;
-        let output = Self::output::<P>(&snapshot, TcpFlags::RST, &[]);
+        let mut snapshot = P::stack().tcp_pcbs.get(pcb)?;
+        let output = Self::output::<P>(&mut snapshot, TcpFlags::RST, &[]);
         P::stack().tcp_pcbs.close(pcb);
         output.map(|_| ()).map_err(TcpCloseError::Output)
     }
@@ -143,7 +143,7 @@ impl Tcp {
         }
         let mut sent = 0;
         while sent < data.len() {
-            let current = P::stack().tcp_pcbs.get(pcb)?;
+            let mut current = P::stack().tcp_pcbs.get(pcb)?;
             if current.state() != TcpState::Established {
                 return Err(TcpSendError::State(current.state()));
             }
@@ -155,13 +155,12 @@ impl Tcp {
             }
             let length = capacity.min(current.mss()).min(data.len() - sent);
             Self::output::<P>(
-                &current,
+                &mut current,
                 TcpFlags::ACK | TcpFlags::PSH,
                 &data[sent..sent + length],
             )?;
-            let mut updated = P::stack().tcp_pcbs.get(pcb)?;
-            updated.advance_send(length);
-            P::stack().tcp_pcbs.replace(pcb, updated)?;
+            current.advance_send(length);
+            P::stack().tcp_pcbs.replace(pcb, current)?;
             sent += length;
         }
         Ok(sent)
@@ -210,6 +209,32 @@ impl Tcp {
             }
             P::stack().tcp_pcbs.wait_for_update(pcb)?;
         }
+    }
+
+    pub fn tick<P: Platform + Random + 'static>() -> Result<(), TcpOutputError<<P as Random>::Error>>
+    {
+        for (key, mut pcb) in P::stack().tcp_pcbs.snapshots() {
+            let retransmissions = pcb.due_retransmissions(P::monotonic_time_microseconds());
+            if retransmissions.is_empty() && pcb.state() != TcpState::Closed {
+                continue;
+            }
+            P::stack().tcp_pcbs.replace(key, pcb.clone()).ok();
+            if pcb.state() == TcpState::Closed {
+                continue;
+            }
+            for retransmission in retransmissions {
+                Self::output_segment::<P>(
+                    retransmission.seq,
+                    pcb.rcv_nxt(),
+                    retransmission.flags,
+                    pcb.rcv_wnd(),
+                    &retransmission.payload,
+                    pcb.local(),
+                    pcb.remote(),
+                )?;
+            }
+        }
+        Ok(())
     }
 
     pub fn input<P: Platform + Random + 'static>(
@@ -293,15 +318,16 @@ impl Tcp {
                     let iss = P::random32().map_err(TcpInputError::Random)?;
                     let mut accepted = P::stack().tcp_pcbs.get(pcb)?;
                     accepted.accept_syn(local, remote, segment.seq, iss);
-                    P::stack().tcp_pcbs.replace(pcb, accepted.clone())?;
-                    Self::output::<P>(&accepted, TcpFlags::SYN | TcpFlags::ACK, &[]).map(|_| ())?;
+                    Self::output::<P>(&mut accepted, TcpFlags::SYN | TcpFlags::ACK, &[])
+                        .map(|_| ())?;
+                    P::stack().tcp_pcbs.replace(pcb, accepted)?;
                 }
             }
             TcpState::SynSent => {}
             TcpState::SynReceived | TcpState::Established => {
                 if !pcb_state.accept_segment(segment.seq, segment.length) {
                     if !flags.contains(TcpFlags::RST) {
-                        Self::output::<P>(&pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
+                        Self::output::<P>(&mut pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
                     }
                     return Ok(());
                 }
@@ -311,7 +337,7 @@ impl Tcp {
                 if flags.contains(TcpFlags::ACK) {
                     match pcb_state.accept_ack(segment.seq, segment.ack, segment.window) {
                         TcpAckResult::TooNew => {
-                            Self::output::<P>(&pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
+                            Self::output::<P>(&mut pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
                             return Ok(());
                         }
                         TcpAckResult::Accepted => {
@@ -327,11 +353,11 @@ impl Tcp {
                 }
                 if state == TcpState::Established && !data.is_empty() {
                     if !pcb_state.accept_payload(segment.seq, data) {
-                        Self::output::<P>(&pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
+                        Self::output::<P>(&mut pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
                         return Ok(());
                     }
                     P::stack().tcp_pcbs.replace(pcb, pcb_state.clone())?;
-                    Self::output::<P>(&pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
+                    Self::output::<P>(&mut pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
                 }
             }
             _ => {}
@@ -362,16 +388,20 @@ impl Tcp {
     }
 
     fn output<P: Platform + Random + 'static>(
-        pcb: &TcpPcb,
+        pcb: &mut TcpPcb,
         flags: TcpFlags,
         payload: &[u8],
     ) -> Result<usize, TcpOutputError<<P as Random>::Error>> {
+        let seq = if flags.contains(TcpFlags::SYN) {
+            pcb.iss()
+        } else {
+            pcb.snd_nxt()
+        };
+        if flags.intersects(TcpFlags::SYN | TcpFlags::FIN) || !payload.is_empty() {
+            pcb.queue_retransmission(seq, flags, payload, P::monotonic_time_microseconds());
+        }
         Self::output_segment::<P>(
-            if flags.contains(TcpFlags::SYN) {
-                pcb.iss()
-            } else {
-                pcb.snd_nxt()
-            },
+            seq,
             pcb.rcv_nxt(),
             flags,
             pcb.rcv_wnd(),

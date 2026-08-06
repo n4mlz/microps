@@ -21,12 +21,12 @@ impl Arp {
         interface: &Ipv4Interface,
         protocol: Ipv4Addr,
     ) -> Result<MacAddr, ArpResolveError> {
-        let now = P::now();
-        if let Some(hardware) = P::stack().arp_cache.resolve(protocol, now) {
+        let timestamp = P::monotonic_time_seconds();
+        if let Some(hardware) = P::stack().arp_cache.resolve(protocol, timestamp) {
             return Ok(hardware);
         }
 
-        P::stack().arp_cache.insert_incomplete(protocol, now);
+        P::stack().arp_cache.insert_incomplete(protocol, timestamp);
         Self::output::<P>(
             interface,
             ArpOperation::Request,
@@ -68,15 +68,18 @@ impl Arp {
         interface: &Ipv4Interface,
     ) -> Result<(), ArpError> {
         let packet = ArpPacket::try_from(data)?;
-        let now = P::now();
-        let updated =
-            P::stack()
-                .arp_cache
-                .update(packet.sender_protocol(), packet.sender_hardware(), now);
+        let timestamp = P::monotonic_time_seconds();
+        let updated = P::stack().arp_cache.update(
+            packet.sender_protocol(),
+            packet.sender_hardware(),
+            timestamp,
+        );
         if !updated && packet.target_protocol() == interface.unicast() {
-            P::stack()
-                .arp_cache
-                .insert(packet.sender_protocol(), packet.sender_hardware(), now);
+            P::stack().arp_cache.insert(
+                packet.sender_protocol(),
+                packet.sender_hardware(),
+                timestamp,
+            );
         }
         if packet.target_protocol() != interface.unicast() {
             return Ok(());

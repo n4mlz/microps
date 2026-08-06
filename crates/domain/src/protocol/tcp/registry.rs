@@ -1,9 +1,9 @@
-use alloc::collections::VecDeque;
+use alloc::{collections::VecDeque, vec::Vec};
 
 use getset::CopyGetters;
 use slotmap::{SlotMap, new_key_type};
 
-use super::{Ipv4Endpoint, TcpState};
+use super::{Ipv4Endpoint, TcpFlags, TcpState};
 use crate::{Lock, Platform};
 
 new_key_type! {
@@ -11,6 +11,15 @@ new_key_type! {
 }
 
 const RECEIVE_WINDOW_SIZE: u16 = u16::MAX;
+const RETRANSMISSION_RTO: u64 = 200_000;
+const RETRANSMISSION_DEADLINE: u64 = 12_000_000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TcpRetransmission {
+    pub seq: u32,
+    pub flags: TcpFlags,
+    pub payload: Vec<u8>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, CopyGetters)]
 pub struct TcpPcb {
@@ -39,6 +48,17 @@ pub struct TcpPcb {
     #[getset(get_copy = "pub")]
     mss: usize,
     receive_buffer: VecDeque<u8>,
+    retransmissions: VecDeque<Retransmission>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Retransmission {
+    first_sent: u64,
+    last_sent: u64,
+    rto: u64,
+    seq: u32,
+    flags: TcpFlags,
+    payload: Vec<u8>,
 }
 
 impl TcpPcb {
@@ -57,6 +77,7 @@ impl TcpPcb {
             snd_wl2: 0,
             mss: 0,
             receive_buffer: VecDeque::new(),
+            retransmissions: VecDeque::new(),
         }
     }
 
@@ -111,6 +132,7 @@ impl TcpPcb {
             if self.state == TcpState::SynReceived {
                 self.state = TcpState::Established;
             }
+            self.cleanup_retransmissions();
             TcpAckResult::Accepted
         } else if ack < self.snd_una {
             TcpAckResult::Old
@@ -146,6 +168,55 @@ impl TcpPcb {
 
     pub fn advance_send(&mut self, length: usize) {
         self.snd_nxt = self.snd_nxt.wrapping_add(length as u32);
+    }
+
+    pub fn queue_retransmission(&mut self, seq: u32, flags: TcpFlags, payload: &[u8], now: u64) {
+        self.retransmissions.push_back(Retransmission {
+            first_sent: now,
+            last_sent: now,
+            rto: RETRANSMISSION_RTO,
+            seq,
+            flags,
+            payload: payload.into(),
+        });
+    }
+
+    pub fn due_retransmissions(&mut self, timestamp: u64) -> Vec<TcpRetransmission> {
+        if self
+            .retransmissions
+            .iter()
+            .any(|entry| timestamp.saturating_sub(entry.first_sent) > RETRANSMISSION_DEADLINE)
+        {
+            self.state = TcpState::Closed;
+            return Vec::new();
+        }
+
+        self.retransmissions
+            .iter_mut()
+            .filter_map(|entry| {
+                if timestamp.saturating_sub(entry.last_sent) < entry.rto {
+                    return None;
+                }
+                entry.last_sent = timestamp;
+                entry.rto = entry.rto.saturating_mul(2);
+                Some(TcpRetransmission {
+                    seq: entry.seq,
+                    flags: entry.flags,
+                    payload: entry.payload.clone(),
+                })
+            })
+            .collect()
+    }
+
+    fn cleanup_retransmissions(&mut self) {
+        while let Some(entry) = self.retransmissions.front() {
+            let consumed = entry.payload.len() as u32
+                + u32::from(entry.flags.intersects(TcpFlags::SYN | TcpFlags::FIN));
+            if self.snd_una < entry.seq.wrapping_add(consumed) {
+                break;
+            }
+            self.retransmissions.pop_front();
+        }
     }
 }
 
@@ -206,6 +277,15 @@ impl<P: Platform> TcpPcbRegistry<P> {
         *entry = pcb;
         self.pcbs.wake_all();
         Ok(())
+    }
+
+    pub fn snapshots(&self) -> Vec<(TcpPcbKey, TcpPcb)> {
+        self.pcbs
+            .acquire()
+            .expect("TCP PCB registry lock is infallible")
+            .iter()
+            .map(|(key, pcb)| (key, pcb.clone()))
+            .collect()
     }
 
     pub fn endpoint_in_use(
