@@ -9,6 +9,9 @@ use crate::{
     protocol::{Ipv4Addr, Ipv4Endpoint},
 };
 
+pub const DYNAMIC_PORT_MIN: u16 = 49152;
+pub const DYNAMIC_PORT_MAX: u16 = u16::MAX;
+
 new_key_type! {
     /// Stable key for a UDP PCB owned by a [`UdpPcbRegistry`].
     pub struct UdpPcbKey;
@@ -45,6 +48,8 @@ pub enum UdpPcbError {
     NotFound,
     #[error("UDP endpoint is already in use")]
     AlreadyBound,
+    #[error("no ephemeral UDP port is available")]
+    NoEphemeralPort,
 }
 
 impl<P: Platform> UdpPcbRegistry<P> {
@@ -59,12 +64,15 @@ impl<P: Platform> UdpPcbRegistry<P> {
     }
 
     pub fn close(&self, pcb: UdpPcbKey) -> Result<(), UdpPcbError> {
-        self.pcbs
+        let result = self
+            .pcbs
             .acquire()
             .expect("UDP PCB registry lock is infallible")
             .remove(pcb)
             .map(|_| ())
-            .ok_or(UdpPcbError::NotFound)
+            .ok_or(UdpPcbError::NotFound);
+        self.pcbs.wake_all();
+        result
     }
 
     pub fn bind(&self, pcb: UdpPcbKey, local: Ipv4Endpoint) -> Result<(), UdpPcbError> {
@@ -106,7 +114,50 @@ impl<P: Platform> UdpPcbRegistry<P> {
             .ok_or(UdpPcbError::NotFound)?
             .receive_queue
             .push_back(datagram);
+        self.pcbs.wake_all();
         Ok(())
+    }
+
+    pub fn recv_from(
+        &self,
+        pcb: UdpPcbKey,
+        buffer: &mut [u8],
+    ) -> Result<(usize, Ipv4Endpoint), UdpPcbError> {
+        let mut pcbs = self
+            .pcbs
+            .acquire()
+            .expect("UDP PCB registry lock is infallible");
+        loop {
+            let socket = pcbs.get_mut(pcb).ok_or(UdpPcbError::NotFound)?;
+            if let Some(datagram) = socket.receive_queue.pop_front() {
+                let length = buffer.len().min(datagram.payload().len());
+                buffer[..length].copy_from_slice(&datagram.payload()[..length]);
+                return Ok((length, datagram.remote()));
+            }
+            pcbs = self.pcbs.wait(pcbs).expect("UDP PCB wait is infallible");
+        }
+    }
+
+    pub(super) fn assign_dynamic_port(&self, pcb: UdpPcbKey) -> Result<Ipv4Endpoint, UdpPcbError> {
+        let mut pcbs = self
+            .pcbs
+            .acquire()
+            .expect("UDP PCB registry lock is infallible");
+        let local = pcbs.get(pcb).ok_or(UdpPcbError::NotFound)?.local;
+        if local.port() != 0 {
+            return Ok(local);
+        }
+        for port in DYNAMIC_PORT_MIN..=DYNAMIC_PORT_MAX {
+            let candidate = Ipv4Endpoint::new(local.address(), port);
+            if !pcbs
+                .iter()
+                .any(|(key, socket)| key != pcb && Self::matches(socket.local, candidate))
+            {
+                pcbs[pcb].local = candidate;
+                return Ok(candidate);
+            }
+        }
+        Err(UdpPcbError::NoEphemeralPort)
     }
 
     fn matches(bound: Ipv4Endpoint, requested: Ipv4Endpoint) -> bool {

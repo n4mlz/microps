@@ -17,10 +17,10 @@ pub struct EtherTapDevice {
 }
 
 impl EtherTapDevice {
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<String>, address: MacAddr) -> Self {
         Self {
             name: name.into(),
-            address: MacAddr::ANY,
+            address,
             device_key: None,
             tap: None,
         }
@@ -62,10 +62,6 @@ impl<P: Platform + 'static> DeviceBackend<P> for EtherTapDevice {
 
     fn open(&mut self) -> Result<(), DeviceError> {
         let tap = Tap::open(&self.name).map_err(|error| backend_error(error.to_string()))?;
-        self.address = MacAddr::from(
-            tap.hardware_address(&self.name)
-                .map_err(|error| backend_error(error.to_string()))?,
-        );
         info!("dev={}, addr={}", self.name, self.address);
         tap.configure_async(signal_number(IrqLine::DeviceInput))
             .map_err(|error| backend_error(error.to_string()))?;

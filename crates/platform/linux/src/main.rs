@@ -1,14 +1,20 @@
-use std::{thread, time::Duration};
+use std::{
+    io::{self, BufRead},
+    sync::mpsc,
+    thread,
+    time::Duration,
+};
 
 use linux::{EtherTapDevice, LinuxPlatform, should_terminate, stack};
 use microps::{
     DeviceKind, DeviceMeta, Irq, IrqLine, Stack, debug, error,
-    protocol::{Ipv4Endpoint, Ipv4Interface},
+    protocol::{Ipv4Endpoint, Ipv4Interface, Ipv4OutputError, Udp, UdpOutputError},
 };
 
 // These values must match scripts/linux_tap_up.sh:
 // Linux host = 10.0.0.1/24, microps = 10.0.0.2/24.
 const TAP_NAME: &str = "microps0";
+const TAP_MAC: [u8; 6] = [0x00, 0x00, 0x5e, 0x00, 0x53, 0x01];
 const TAP_IP: [u8; 4] = [10, 0, 0, 2];
 const TAP_NETMASK: [u8; 4] = [255, 255, 255, 0];
 
@@ -21,7 +27,7 @@ fn main() {
     {
         device_key = stack.devices.register_device(
             DeviceMeta::new(TAP_NAME, DeviceKind::Ethernet, 1500),
-            EtherTapDevice::new(TAP_NAME),
+            EtherTapDevice::new(TAP_NAME, TAP_MAC.into()),
         );
         interface_key = stack
             .interfaces
@@ -81,7 +87,7 @@ fn main() {
     let udp_pcb = stack.udp_pcbs.open();
     if let Err(error_value) = stack
         .udp_pcbs
-        .bind(udp_pcb, Ipv4Endpoint::new(TAP_IP.into(), 7))
+        .bind(udp_pcb, Ipv4Endpoint::new(TAP_IP.into(), 10007))
     {
         error!("UDP bind failure: {error_value}");
         let _ = stack.udp_pcbs.close(udp_pcb);
@@ -90,13 +96,51 @@ fn main() {
         return;
     }
 
-    debug!("interface={interface_key:?}, press Ctrl+C to terminate");
+    let udp_receiver = thread::spawn(move || {
+        let mut buffer = [0; 128];
+        while let Ok((length, remote)) =
+            microps::protocol::Udp::recv_from::<LinuxPlatform>(udp_pcb, &mut buffer)
+        {
+            debug!("received {length} bytes from {remote}");
+            microps::debugdump(&buffer[..length]);
+        }
+    });
+
+    let (sender, line_receiver) = mpsc::channel();
+    thread::spawn(move || {
+        for line in io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            if sender.send(line).is_err() {
+                break;
+            }
+        }
+    });
+
+    debug!("interface={interface_key:?}, enter text to send");
     while !should_terminate() {
-        thread::sleep(Duration::from_millis(10));
+        match line_receiver.recv_timeout(Duration::from_millis(100)) {
+            Ok(line) => match Udp::send_to::<LinuxPlatform>(
+                udp_pcb,
+                line.as_bytes(),
+                Ipv4Endpoint::new([10, 0, 0, 1].into(), 10007),
+            ) {
+                Ok(_) => {}
+                Err(UdpOutputError::Ipv4(Ipv4OutputError::ArpIncomplete)) => {
+                    error!("UDP send postponed until ARP resolution completes");
+                }
+                Err(error_value) => {
+                    error!("UDP send failure: {error_value}");
+                    break;
+                }
+            },
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
     }
 
     debug!("terminate");
     stack.udp_pcbs.close(udp_pcb).unwrap();
+    let _ = udp_receiver.join();
     stack.close_all();
     Stack::<LinuxPlatform>::shutdown();
 }

@@ -40,6 +40,26 @@ pub struct UdpHeader {
     checksum: u16,
 }
 
+impl UdpHeader {
+    pub(super) const fn new(src_port: u16, dest_port: u16, length: u16, checksum: u16) -> Self {
+        Self {
+            src_port,
+            dest_port,
+            length,
+            checksum,
+        }
+    }
+
+    pub(super) fn to_bytes(self) -> [u8; UDP_HEADER_LEN] {
+        let mut bytes = [0; UDP_HEADER_LEN];
+        bytes[..2].copy_from_slice(&self.src_port.to_be_bytes());
+        bytes[2..4].copy_from_slice(&self.dest_port.to_be_bytes());
+        bytes[4..6].copy_from_slice(&self.length.to_be_bytes());
+        bytes[6..].copy_from_slice(&self.checksum.to_be_bytes());
+        bytes
+    }
+}
+
 impl TryFrom<&[u8]> for UdpHeader {
     type Error = UdpError;
 
@@ -66,4 +86,6 @@ pub enum UdpError {
     LengthTruncated { len: usize, length: usize },
     #[error("invalid UDP checksum")]
     InvalidChecksum,
+    #[error("UDP payload is too large: {len} bytes")]
+    PayloadTooLarge { len: usize },
 }
