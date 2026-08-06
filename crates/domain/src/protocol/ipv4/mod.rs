@@ -177,7 +177,7 @@ impl Ipv4 {
                 }
             }
             Ok(Ipv4Protocol::Tcp) => {
-                if let Err(error) = Tcp::input(packet, interface) {
+                if let Err(error) = Tcp::input::<P>(packet, interface) {
                     error!("{error}");
                 }
             }

@@ -1,8 +1,38 @@
 use getset::CopyGetters;
 use thiserror::Error;
 
-use super::{IP_HEADER_LEN, Ipv4Addr, VERSION};
+use super::{IP_HEADER_LEN, Ipv4Addr, Ipv4Protocol, VERSION};
 use crate::protocol::checksum16;
+
+pub const IPV4_PSEUDO_HEADER_LEN: usize = 12;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ipv4PseudoHeader {
+    src: Ipv4Addr,
+    dest: Ipv4Addr,
+    protocol: Ipv4Protocol,
+    length: u16,
+}
+
+impl Ipv4PseudoHeader {
+    pub const fn new(src: Ipv4Addr, dest: Ipv4Addr, protocol: Ipv4Protocol, length: u16) -> Self {
+        Self {
+            src,
+            dest,
+            protocol,
+            length,
+        }
+    }
+
+    pub fn to_bytes(self) -> [u8; IPV4_PSEUDO_HEADER_LEN] {
+        let mut bytes = [0; IPV4_PSEUDO_HEADER_LEN];
+        bytes[..4].copy_from_slice(self.src.as_bytes());
+        bytes[4..8].copy_from_slice(self.dest.as_bytes());
+        bytes[9] = self.protocol as u8;
+        bytes[10..].copy_from_slice(&self.length.to_be_bytes());
+        bytes
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, CopyGetters)]
 pub struct Ipv4Header {

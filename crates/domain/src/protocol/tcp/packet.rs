@@ -2,10 +2,10 @@ use alloc::vec::Vec;
 
 use getset::{CopyGetters, Getters};
 
-use super::{TCP_HEADER_LEN, TcpError, TcpHeader};
-use crate::protocol::{Ipv4Endpoint, Ipv4Packet, Ipv4Protocol, checksum16};
-
-const TCP_PSEUDO_HEADER_LEN: usize = 12;
+use super::{TCP_HEADER_LEN, TcpError, TcpFlags, TcpHeader};
+use crate::protocol::{
+    IPV4_PSEUDO_HEADER_LEN, Ipv4Endpoint, Ipv4Packet, Ipv4Protocol, Ipv4PseudoHeader, checksum16,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Getters, CopyGetters)]
 pub struct TcpPacket<'a> {
@@ -24,6 +24,38 @@ pub struct TcpPacket<'a> {
 }
 
 impl<'a> TcpPacket<'a> {
+    pub fn build(
+        src: Ipv4Endpoint,
+        dest: Ipv4Endpoint,
+        seq: u32,
+        ack: u32,
+        flags: TcpFlags,
+        window_size: u16,
+        payload: &[u8],
+    ) -> Result<Vec<u8>, TcpError> {
+        let length = TCP_HEADER_LEN
+            .checked_add(payload.len())
+            .filter(|length| *length <= usize::from(u16::MAX))
+            .ok_or(TcpError::PayloadTooLarge { len: payload.len() })?;
+        let mut data = Vec::with_capacity(length);
+        data.extend_from_slice(
+            &TcpHeader::new(src.port(), dest.port(), seq, ack, flags, window_size, 0).to_bytes(),
+        );
+        data.extend_from_slice(payload);
+
+        let pseudo_header = Ipv4PseudoHeader::new(
+            src.address(),
+            dest.address(),
+            Ipv4Protocol::Tcp,
+            length as u16,
+        );
+        let mut checksum_data = Vec::with_capacity(IPV4_PSEUDO_HEADER_LEN + data.len());
+        checksum_data.extend_from_slice(&pseudo_header.to_bytes());
+        checksum_data.extend_from_slice(&data);
+        data[16..18].copy_from_slice(&checksum16(&checksum_data).to_be_bytes());
+        Ok(data)
+    }
+
     pub fn from_ipv4(packet: Ipv4Packet<'a>) -> Result<Self, TcpError> {
         let data = packet.payload();
         let header = TcpHeader::try_from(data)?;
@@ -35,13 +67,14 @@ impl<'a> TcpPacket<'a> {
             });
         }
 
-        let mut pseudo_header = [0; TCP_PSEUDO_HEADER_LEN];
-        pseudo_header[..4].copy_from_slice(packet.header().src().as_bytes());
-        pseudo_header[4..8].copy_from_slice(packet.header().dest().as_bytes());
-        pseudo_header[9] = Ipv4Protocol::Tcp as u8;
-        pseudo_header[10..].copy_from_slice(&(data.len() as u16).to_be_bytes());
-        let mut checksum_data = Vec::with_capacity(pseudo_header.len() + data.len());
-        checksum_data.extend_from_slice(&pseudo_header);
+        let pseudo_header = Ipv4PseudoHeader::new(
+            packet.header().src(),
+            packet.header().dest(),
+            Ipv4Protocol::Tcp,
+            data.len() as u16,
+        );
+        let mut checksum_data = Vec::with_capacity(IPV4_PSEUDO_HEADER_LEN + data.len());
+        checksum_data.extend_from_slice(&pseudo_header.to_bytes());
         checksum_data.extend_from_slice(data);
         if checksum16(&checksum_data) != 0 {
             return Err(TcpError::InvalidChecksum);

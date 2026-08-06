@@ -238,7 +238,7 @@ fn tcp_packet_parses_header_options_and_payload() {
         TcpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4[..]).unwrap()).expect("TCP packet parses");
     assert_eq!(packet.src().to_string(), "192.0.2.1:1234");
     assert_eq!(packet.dest().to_string(), "192.0.2.2:80");
-    assert_eq!(packet.header().sequence_number(), 0x0102_0304);
+    assert_eq!(packet.header().seq(), 0x0102_0304);
     assert_eq!(packet.header().header_len(), 24);
     assert_eq!(packet.header().flags(), TcpFlags::SYN);
     assert_eq!(packet.options(), &[2, 4, 5, 180]);
@@ -275,6 +275,29 @@ fn tcp_packet_rejects_short_headers_and_bad_checksums() {
         TcpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4[..]).unwrap()),
         Err(TcpError::InvalidChecksum)
     );
+}
+
+#[test]
+fn tcp_packet_builds_a_valid_checksum() {
+    let src = Ipv4Endpoint::new(Ipv4Addr::from([192, 0, 2, 1]), 1234);
+    let dest = Ipv4Endpoint::new(Ipv4Addr::from([192, 0, 2, 2]), 80);
+    let tcp =
+        TcpPacket::build(src, dest, 1, 0, TcpFlags::SYN, 4096, b"hi").expect("TCP segment builds");
+    let ipv4 = Ipv4Packet::build(
+        Ipv4Protocol::Tcp as u8,
+        &tcp,
+        0,
+        src.address(),
+        dest.address(),
+    )
+    .expect("IPv4 packet builds");
+
+    let packet = TcpPacket::from_ipv4(Ipv4Packet::try_from(&ipv4[..]).unwrap())
+        .expect("built TCP packet parses");
+    assert_eq!(packet.src(), src);
+    assert_eq!(packet.dest(), dest);
+    assert_eq!(packet.header().flags(), TcpFlags::SYN);
+    assert_eq!(packet.payload(), b"hi");
 }
 
 #[test]
