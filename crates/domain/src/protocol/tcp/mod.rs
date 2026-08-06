@@ -95,14 +95,73 @@ pub enum TcpInputError<E> {
 pub struct Tcp;
 
 impl Tcp {
+    pub fn socket<P: Platform + 'static>() -> TcpPcbKey {
+        P::stack().tcp_pcbs.open()
+    }
+
+    pub fn bind<P: Platform + 'static>(
+        pcb: TcpPcbKey,
+        local: Ipv4Endpoint,
+    ) -> Result<(), TcpPcbError> {
+        P::stack().tcp_pcbs.bind(pcb, local)
+    }
+
+    pub fn listen<P: Platform + 'static>(
+        pcb: TcpPcbKey,
+        backlog: usize,
+    ) -> Result<(), TcpPcbError> {
+        P::stack().tcp_pcbs.listen(pcb, backlog)
+    }
+
+    pub fn accept<P: Platform + 'static>(
+        pcb: TcpPcbKey,
+    ) -> Result<(TcpPcbKey, Ipv4Endpoint), TcpOpenError<<P as Random>::Error>> {
+        let child = P::stack().tcp_pcbs.accept(pcb)?;
+        let mut accepted = P::stack().tcp_pcbs.get(child)?;
+        accepted.set_mss(Self::mss::<P>(accepted.remote())?);
+        let remote = accepted.remote();
+        P::stack().tcp_pcbs.replace(child, accepted)?;
+        Ok((child, remote))
+    }
+
+    pub fn connect<P: Platform + Random + 'static>(
+        pcb: TcpPcbKey,
+        remote: Ipv4Endpoint,
+    ) -> Result<(), TcpOpenError<<P as Random>::Error>> {
+        let current = P::stack().tcp_pcbs.get(pcb)?;
+        if current.state() != TcpState::Closed {
+            return Err(TcpOpenError::Pcb(TcpPcbError::InvalidState(
+                current.state(),
+            )));
+        }
+        Self::start_active::<P>(pcb, current.local(), remote)?;
+        loop {
+            let state = P::stack().tcp_pcbs.get(pcb)?.state();
+            if state == TcpState::Established {
+                let mut established = P::stack().tcp_pcbs.get(pcb)?;
+                established.set_mss(Self::mss::<P>(established.remote())?);
+                P::stack().tcp_pcbs.replace(pcb, established)?;
+                return Ok(());
+            }
+            if !matches!(state, TcpState::SynSent | TcpState::SynReceived) {
+                P::stack().tcp_pcbs.close(pcb);
+                return Err(TcpOpenError::Pcb(TcpPcbError::NotFound));
+            }
+            P::stack().tcp_pcbs.wait_for_state_change(pcb, state)?;
+        }
+    }
+
     pub fn open<P: Platform + Random + 'static>(
         local: Ipv4Endpoint,
         remote: Ipv4Endpoint,
         mode: TcpOpenMode,
     ) -> Result<TcpPcbKey, TcpOpenError<<P as Random>::Error>> {
-        let pcb = P::stack().tcp_pcbs.open();
+        let pcb = Self::socket::<P>();
         if mode == TcpOpenMode::Active {
-            if let Err(error_value) = Self::start_active::<P>(pcb, local, remote) {
+            let mut active = P::stack().tcp_pcbs.get(pcb)?;
+            active.set_local(local);
+            P::stack().tcp_pcbs.replace(pcb, active)?;
+            if let Err(error_value) = Self::connect::<P>(pcb, remote) {
                 P::stack().tcp_pcbs.close(pcb);
                 return Err(error_value);
             }
@@ -112,27 +171,20 @@ impl Tcp {
                 return Err(TcpOpenError::Pcb(TcpPcbError::AlreadyBound));
             }
             let mut listener = P::stack().tcp_pcbs.get(pcb)?;
-            listener.listen(local, remote);
+            listener.set_local(local);
             P::stack().tcp_pcbs.replace(pcb, listener)?;
+            P::stack().tcp_pcbs.listen(pcb, 1)?;
+            let (child, _) = match Self::accept::<P>(pcb) {
+                Ok(child) => child,
+                Err(error_value) => {
+                    P::stack().tcp_pcbs.close(pcb);
+                    return Err(error_value);
+                }
+            };
+            return Ok(child);
         }
 
-        loop {
-            let state = P::stack().tcp_pcbs.get(pcb)?.state();
-            if state == TcpState::Established {
-                let mut established = P::stack().tcp_pcbs.get(pcb)?;
-                established.set_mss(Self::mss::<P>(established.remote())?);
-                P::stack().tcp_pcbs.replace(pcb, established)?;
-                return Ok(pcb);
-            }
-            if state != TcpState::Listen
-                && state != TcpState::SynSent
-                && state != TcpState::SynReceived
-            {
-                P::stack().tcp_pcbs.close(pcb);
-                return Err(TcpOpenError::Pcb(TcpPcbError::NotFound));
-            }
-            P::stack().tcp_pcbs.wait_for_state_change(pcb, state)?;
-        }
+        Ok(pcb)
     }
 
     fn start_active<P: Platform + Random + 'static>(
@@ -380,7 +432,6 @@ impl Tcp {
         if state == TcpState::Closed {
             return Self::respond_to_unknown::<P>(segment, flags, local, remote);
         }
-        let mut pcb_state = P::stack().tcp_pcbs.get(pcb)?;
         match state {
             TcpState::Listen => {
                 if flags.contains(TcpFlags::ACK) {
@@ -388,14 +439,25 @@ impl Tcp {
                         .map(|_| ())?;
                 } else if flags.contains(TcpFlags::SYN) {
                     let iss = P::random32().map_err(TcpInputError::Random)?;
-                    let mut accepted = P::stack().tcp_pcbs.get(pcb)?;
-                    accepted.accept_syn(local, remote, segment.seq, iss);
+                    let child = match P::stack().tcp_pcbs.allocate_child(
+                        pcb,
+                        local,
+                        remote,
+                        segment.seq,
+                        iss,
+                    ) {
+                        Ok(child) => child,
+                        Err(TcpPcbError::BacklogFull) => return Ok(()),
+                        Err(error_value) => return Err(error_value.into()),
+                    };
+                    let mut accepted = P::stack().tcp_pcbs.get(child)?;
                     Self::output::<P>(&mut accepted, TcpFlags::SYN | TcpFlags::ACK, &[])
                         .map(|_| ())?;
-                    P::stack().tcp_pcbs.replace(pcb, accepted)?;
+                    P::stack().tcp_pcbs.replace(child, accepted)?;
                 }
             }
             TcpState::SynSent => {
+                let mut pcb_state = P::stack().tcp_pcbs.get(pcb)?;
                 let ack_acceptable = if flags.contains(TcpFlags::ACK) {
                     if segment.ack <= pcb_state.iss() || segment.ack > pcb_state.snd_nxt() {
                         Self::output_segment::<P>(
@@ -445,6 +507,7 @@ impl Tcp {
             | TcpState::Closing
             | TcpState::LastAck
             | TcpState::TimeWait => {
+                let mut pcb_state = P::stack().tcp_pcbs.get(pcb)?;
                 if !pcb_state.accept_segment(segment.seq, segment.length) {
                     if !flags.contains(TcpFlags::RST) {
                         Self::output::<P>(&mut pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
@@ -484,6 +547,10 @@ impl Tcp {
                         pcb_state.enter_time_wait(P::monotonic_time_seconds());
                     }
                     P::stack().tcp_pcbs.replace(pcb, pcb_state.clone())?;
+                    if state == TcpState::SynReceived && pcb_state.state() == TcpState::Established
+                    {
+                        P::stack().tcp_pcbs.enqueue_established(pcb)?;
+                    }
                 } else {
                     return Ok(());
                 }
@@ -515,6 +582,7 @@ impl Tcp {
                     | TcpState::TimeWait
             )
         {
+            let mut pcb_state = P::stack().tcp_pcbs.get(pcb)?;
             if !pcb_state.accept_fin_at(segment.seq, data.len(), P::monotonic_time_seconds()) {
                 Self::output::<P>(&mut pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
                 return Ok(());

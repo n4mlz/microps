@@ -3,7 +3,7 @@ use std::{thread, time::Duration};
 use linux::{EtherTapDevice, LinuxPlatform, should_terminate, stack};
 use microps::{
     DeviceKind, DeviceMeta, Irq, IrqLine, Stack, debug, error,
-    protocol::{Ipv4Addr, Ipv4Endpoint, Ipv4Interface, Tcp, TcpOpenMode},
+    protocol::{Ipv4Addr, Ipv4Endpoint, Ipv4Interface, Tcp},
 };
 
 // These values must match scripts/linux_tap_up.sh:
@@ -12,8 +12,7 @@ const TAP_NAME: &str = "microps0";
 const TAP_MAC: [u8; 6] = [0x00, 0x00, 0x5e, 0x00, 0x53, 0x01];
 const TAP_IP: [u8; 4] = [10, 0, 0, 2];
 const TAP_NETMASK: [u8; 4] = [255, 255, 255, 0];
-const TCP_REMOTE: [u8; 4] = [10, 0, 0, 1];
-const TCP_REMOTE_PORT: u16 = 10007;
+const TCP_LISTEN_PORT: u16 = 7;
 
 fn main() {
     Stack::<LinuxPlatform>::init().unwrap();
@@ -81,21 +80,33 @@ fn main() {
         return;
     }
 
-    let tcp_pcb = match Tcp::open::<LinuxPlatform>(
-        Ipv4Endpoint::new(Ipv4Addr::ANY, 0),
-        Ipv4Endpoint::new(TCP_REMOTE.into(), TCP_REMOTE_PORT),
-        TcpOpenMode::Active,
-    ) {
-        Ok(pcb) => pcb,
+    let listener = Tcp::socket::<LinuxPlatform>();
+    if let Err(error_value) =
+        Tcp::bind::<LinuxPlatform>(listener, Ipv4Endpoint::new(Ipv4Addr::ANY, TCP_LISTEN_PORT))
+    {
+        error!("TCP bind failure: {error_value}");
+        stack.close_all();
+        Stack::<LinuxPlatform>::shutdown();
+        return;
+    }
+    if let Err(error_value) = Tcp::listen::<LinuxPlatform>(listener, 1) {
+        error!("TCP listen failure: {error_value}");
+        stack.close_all();
+        Stack::<LinuxPlatform>::shutdown();
+        return;
+    }
+    let (tcp_pcb, remote) = match Tcp::accept::<LinuxPlatform>(listener) {
+        Ok(connection) => connection,
         Err(error_value) => {
-            error!("TCP open failure: {error_value}");
+            error!("TCP accept failure: {error_value}");
+            let _ = Tcp::close::<LinuxPlatform>(listener);
             stack.close_all();
             Stack::<LinuxPlatform>::shutdown();
             return;
         }
     };
 
-    debug!("interface={interface_key:?}, TCP connection established");
+    debug!("interface={interface_key:?}, remote={remote}, TCP connection established");
     let echo_thread = thread::spawn(move || {
         let mut buffer = [0; 128];
         loop {
@@ -140,6 +151,8 @@ fn main() {
         error!("TCP close failure: {error_value}");
     }
     let _ = echo_thread.join();
+    let _ = Tcp::close::<LinuxPlatform>(listener);
+    thread::sleep(Duration::from_secs(1));
     stack.close_all();
     Stack::<LinuxPlatform>::shutdown();
 }

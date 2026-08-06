@@ -1,18 +1,19 @@
 use alloc::collections::VecDeque;
 
-use getset::CopyGetters;
+use getset::{CopyGetters, Getters, MutGetters, Setters};
 
-use super::{Ipv4Endpoint, TcpFlags, TcpState};
+use super::{Ipv4Endpoint, TcpFlags, TcpPcbKey, TcpState};
 use crate::protocol::tcp::retrans::{Retrans, RetransInfo, RetransQueue};
 
 const RECEIVE_WINDOW_SIZE: u16 = u16::MAX;
 pub const TIME_WAIT_SECONDS: u64 = 30;
 
-#[derive(Debug, Clone, PartialEq, Eq, CopyGetters)]
+#[derive(Debug, Clone, PartialEq, Eq, CopyGetters, Getters, MutGetters, Setters)]
 pub struct TcpPcb {
     #[getset(get_copy = "pub")]
     state: TcpState,
     #[getset(get_copy = "pub")]
+    #[getset(set = "pub")]
     local: Ipv4Endpoint,
     #[getset(get_copy = "pub")]
     remote: Ipv4Endpoint,
@@ -33,10 +34,17 @@ pub struct TcpPcb {
     #[getset(get_copy = "pub")]
     snd_wl2: u32,
     #[getset(get_copy = "pub")]
+    #[getset(set = "pub")]
     mss: usize,
     receive_buffer: VecDeque<u8>,
     retrans_queue: RetransQueue,
     time_wait_until: Option<u64>,
+    #[getset(get_copy = "pub", set = "pub")]
+    parent: Option<TcpPcbKey>,
+    #[getset(get = "pub", get_mut = "pub")]
+    backlog: VecDeque<TcpPcbKey>,
+    #[getset(get_copy = "pub", set = "pub")]
+    backlog_max: usize,
 }
 
 impl TcpPcb {
@@ -58,6 +66,9 @@ impl TcpPcb {
             receive_buffer: VecDeque::new(),
             retrans_queue: RetransQueue::new(),
             time_wait_until: None,
+            parent: None,
+            backlog: VecDeque::new(),
+            backlog_max: 0,
         }
     }
 
@@ -65,10 +76,6 @@ impl TcpPcb {
         self.local = local;
         self.remote = remote;
         self.state = TcpState::Listen;
-    }
-
-    pub fn bind_local(&mut self, local: Ipv4Endpoint) {
-        self.local = local;
     }
 
     pub fn accept_syn(&mut self, local: Ipv4Endpoint, remote: Ipv4Endpoint, seq: u32, iss: u32) {
@@ -233,10 +240,6 @@ impl TcpPcb {
 
     pub fn has_received_data(&self) -> bool {
         !self.receive_buffer.is_empty()
-    }
-
-    pub fn set_mss(&mut self, mss: usize) {
-        self.mss = mss;
     }
 
     pub fn advance_send(&mut self, length: usize) {

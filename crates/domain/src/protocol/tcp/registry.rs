@@ -22,15 +22,132 @@ impl<P: Platform> TcpPcbRegistry<P> {
             .insert(TcpPcb::new())
     }
 
-    pub fn close(&self, pcb: TcpPcbKey) -> bool {
-        let result = self
+    pub fn bind(&self, pcb: TcpPcbKey, local: Ipv4Endpoint) -> Result<(), TcpPcbError> {
+        if local.port() == 0 {
+            return Err(TcpPcbError::InvalidEndpoint);
+        }
+        let mut pcbs = self
             .pcbs
             .acquire()
-            .expect("TCP PCB registry lock is infallible")
-            .remove(pcb)
-            .is_some();
+            .expect("TCP PCB registry lock is infallible");
+        let current = pcbs.get(pcb).ok_or(TcpPcbError::NotFound)?;
+        if current.state() != TcpState::Closed {
+            return Err(TcpPcbError::InvalidState(current.state()));
+        }
+        if pcbs.iter().any(|(key, other)| {
+            key != pcb
+                && other.state() != TcpState::Closed
+                && (Self::matches(
+                    other,
+                    local,
+                    Ipv4Endpoint::new(crate::protocol::Ipv4Addr::ANY, 0),
+                ) || (other.local().address() == crate::protocol::Ipv4Addr::ANY
+                    && other.local().port() == local.port()))
+        }) {
+            return Err(TcpPcbError::AlreadyBound);
+        }
+        pcbs[pcb].set_local(local);
+        Ok(())
+    }
+
+    pub fn listen(&self, pcb: TcpPcbKey, backlog: usize) -> Result<(), TcpPcbError> {
+        let mut pcbs = self
+            .pcbs
+            .acquire()
+            .expect("TCP PCB registry lock is infallible");
+        let current = pcbs.get_mut(pcb).ok_or(TcpPcbError::NotFound)?;
+        if current.state() != TcpState::Closed {
+            return Err(TcpPcbError::InvalidState(current.state()));
+        }
+        if current.local().port() == 0 {
+            return Err(TcpPcbError::InvalidEndpoint);
+        }
+        current.set_backlog_max(backlog);
+        current.listen(
+            current.local(),
+            Ipv4Endpoint::new(crate::protocol::Ipv4Addr::ANY, 0),
+        );
         self.pcbs.wake_all();
-        result
+        Ok(())
+    }
+
+    pub fn allocate_child(
+        &self,
+        listener: TcpPcbKey,
+        local: Ipv4Endpoint,
+        remote: Ipv4Endpoint,
+        seq: u32,
+        iss: u32,
+    ) -> Result<TcpPcbKey, TcpPcbError> {
+        let mut pcbs = self
+            .pcbs
+            .acquire()
+            .expect("TCP PCB registry lock is infallible");
+        let listener_pcb = pcbs.get(listener).ok_or(TcpPcbError::NotFound)?;
+        if listener_pcb.state() != TcpState::Listen {
+            return Err(TcpPcbError::InvalidState(listener_pcb.state()));
+        }
+        if listener_pcb.backlog().len() >= listener_pcb.backlog_max() {
+            return Err(TcpPcbError::BacklogFull);
+        }
+        let mut child = TcpPcb::new();
+        child.set_parent(Some(listener));
+        child.accept_syn(local, remote, seq, iss);
+        Ok(pcbs.insert(child))
+    }
+
+    pub fn enqueue_established(&self, pcb: TcpPcbKey) -> Result<(), TcpPcbError> {
+        let mut pcbs = self
+            .pcbs
+            .acquire()
+            .expect("TCP PCB registry lock is infallible");
+        let parent = pcbs
+            .get(pcb)
+            .ok_or(TcpPcbError::NotFound)?
+            .parent()
+            .ok_or(TcpPcbError::InvalidState(TcpState::Established))?;
+        let parent_pcb = pcbs.get_mut(parent).ok_or(TcpPcbError::NotFound)?;
+        if !parent_pcb.backlog().contains(&pcb) {
+            parent_pcb.backlog_mut().push_back(pcb);
+        }
+        self.pcbs.wake_all();
+        Ok(())
+    }
+
+    pub fn accept(&self, listener: TcpPcbKey) -> Result<TcpPcbKey, TcpPcbError> {
+        let mut pcbs = self
+            .pcbs
+            .acquire()
+            .expect("TCP PCB registry lock is infallible");
+        loop {
+            let listener_pcb = pcbs.get_mut(listener).ok_or(TcpPcbError::NotFound)?;
+            if listener_pcb.state() != TcpState::Listen {
+                return Err(TcpPcbError::InvalidState(listener_pcb.state()));
+            }
+            if let Some(child) = listener_pcb.backlog_mut().pop_front() {
+                return Ok(child);
+            }
+            pcbs = self.pcbs.wait(pcbs).expect("TCP PCB wait is infallible");
+        }
+    }
+
+    pub fn close(&self, pcb: TcpPcbKey) -> bool {
+        let mut pcbs = self
+            .pcbs
+            .acquire()
+            .expect("TCP PCB registry lock is infallible");
+        let Some(mut removed) = pcbs.remove(pcb) else {
+            self.pcbs.wake_all();
+            return false;
+        };
+        for child in removed.backlog_mut().drain(..) {
+            pcbs.remove(child);
+        }
+        for parent in pcbs.values_mut() {
+            parent.backlog_mut().retain(|child| *child != pcb);
+        }
+        self.pcbs.wake_all();
+        true
     }
 
     pub fn get(&self, pcb: TcpPcbKey) -> Result<TcpPcb, TcpPcbError> {
@@ -130,7 +247,7 @@ impl<P: Platform> TcpPcbRegistry<P> {
             {
                 return Err(TcpPcbError::AlreadyBound);
             }
-            pcbs[pcb].bind_local(local);
+            pcbs[pcb].set_local(local);
             return Ok(local);
         }
         for port in crate::protocol::DYNAMIC_PORT_MIN..=crate::protocol::DYNAMIC_PORT_MAX {
@@ -139,7 +256,7 @@ impl<P: Platform> TcpPcbRegistry<P> {
                 .iter()
                 .any(|(key, other)| key != pcb && Self::matches(other, candidate, remote))
             {
-                pcbs[pcb].bind_local(candidate);
+                pcbs[pcb].set_local(candidate);
                 return Ok(candidate);
             }
         }
@@ -185,8 +302,16 @@ impl<P: Platform> TcpPcbRegistry<P> {
             .acquire()
             .expect("TCP PCB registry lock is infallible")
             .iter()
-            .find(|(_, pcb)| Self::matches(pcb, local, remote))
-            .map(|(key, pcb)| (key, pcb.state()))
+            .fold(None, |listener, (key, pcb)| {
+                if !Self::matches(pcb, local, remote) {
+                    return listener;
+                }
+                if pcb.state() != TcpState::Listen {
+                    Some((key, pcb.state()))
+                } else {
+                    listener.or(Some((key, pcb.state())))
+                }
+            })
     }
 
     fn matches(pcb: &TcpPcb, local: Ipv4Endpoint, remote: Ipv4Endpoint) -> bool {
@@ -207,6 +332,12 @@ pub enum TcpPcbError {
     AlreadyBound,
     #[error("no ephemeral TCP port is available")]
     NoEphemeralPort,
+    #[error("TCP PCB is in an invalid state: {0:?}")]
+    InvalidState(TcpState),
+    #[error("TCP endpoint is invalid")]
+    InvalidEndpoint,
+    #[error("TCP listen backlog is full")]
+    BacklogFull,
 }
 
 impl<P: Platform> Default for TcpPcbRegistry<P> {
