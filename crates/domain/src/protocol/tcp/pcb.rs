@@ -104,6 +104,11 @@ impl TcpPcb {
         }
     }
 
+    pub fn accept_simultaneous_syn(&mut self, seq: u32) {
+        self.rcv_nxt = seq.wrapping_add(1);
+        self.state = TcpState::SynReceived;
+    }
+
     // Segment validation and state transitions.
     pub fn accept_segment(&self, seq: u32, length: u32) -> bool {
         if length == 0 {
@@ -128,6 +133,7 @@ impl TcpPcb {
                 | TcpState::CloseWait
                 | TcpState::FinWait1
                 | TcpState::FinWait2
+                | TcpState::Closing
         ) {
             return TcpAckResult::Ignored;
         }
@@ -180,6 +186,10 @@ impl TcpPcb {
     pub fn enter_fin_wait1(&mut self) {
         self.advance_send(1);
         self.state = TcpState::FinWait1;
+    }
+
+    pub fn set_closing(&mut self) {
+        self.state = TcpState::Closing;
     }
 
     pub fn enter_last_ack(&mut self) {
