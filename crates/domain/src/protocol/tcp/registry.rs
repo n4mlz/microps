@@ -95,6 +95,28 @@ impl TcpPcb {
         self.state = TcpState::SynReceived;
     }
 
+    pub fn connect(&mut self, local: Ipv4Endpoint, remote: Ipv4Endpoint, iss: u32) {
+        self.local = local;
+        self.remote = remote;
+        self.iss = iss;
+        self.rcv_wnd = RECEIVE_WINDOW_SIZE;
+        self.snd_nxt = iss.wrapping_add(1);
+        self.snd_una = iss;
+        self.state = TcpState::SynSent;
+    }
+
+    pub fn accept_syn_ack(&mut self, seq: u32, ack: u32, window: u16) {
+        self.rcv_nxt = seq.wrapping_add(1);
+        if self.snd_una < ack && ack <= self.snd_nxt {
+            self.snd_una = ack;
+            self.cleanup_retrans();
+            self.snd_wnd = window;
+            self.snd_wl1 = seq;
+            self.snd_wl2 = ack;
+            self.state = TcpState::Established;
+        }
+    }
+
     pub fn accept_segment(&self, seq: u32, length: u32) -> bool {
         if length == 0 {
             if self.rcv_wnd == 0 {
@@ -318,6 +340,42 @@ impl<P: Platform> TcpPcbRegistry<P> {
             })
     }
 
+    pub fn assign_dynamic_port(
+        &self,
+        pcb: TcpPcbKey,
+        local: Ipv4Endpoint,
+        remote: Ipv4Endpoint,
+    ) -> Result<Ipv4Endpoint, TcpPcbError> {
+        let mut pcbs = self
+            .pcbs
+            .acquire()
+            .expect("TCP PCB registry lock is infallible");
+        if !pcbs.contains_key(pcb) {
+            return Err(TcpPcbError::NotFound);
+        }
+        if local.port() != 0 {
+            if pcbs
+                .iter()
+                .any(|(key, other)| key != pcb && Self::matches(other, local, remote))
+            {
+                return Err(TcpPcbError::AlreadyBound);
+            }
+            pcbs[pcb].local = local;
+            return Ok(local);
+        }
+        for port in crate::protocol::DYNAMIC_PORT_MIN..=crate::protocol::DYNAMIC_PORT_MAX {
+            let candidate = Ipv4Endpoint::new(local.address(), port);
+            if !pcbs
+                .iter()
+                .any(|(key, other)| key != pcb && Self::matches(other, candidate, remote))
+            {
+                pcbs[pcb].local = candidate;
+                return Ok(candidate);
+            }
+        }
+        Err(TcpPcbError::NoEphemeralPort)
+    }
+
     pub fn wait_for_state_change(
         &self,
         pcb: TcpPcbKey,
@@ -377,6 +435,8 @@ pub enum TcpPcbError {
     NotFound,
     #[error("TCP endpoint is already in use")]
     AlreadyBound,
+    #[error("no ephemeral TCP port is available")]
+    NoEphemeralPort,
 }
 
 impl<P: Platform> Default for TcpPcbRegistry<P> {

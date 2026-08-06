@@ -141,15 +141,15 @@ fn tcp_registry_listens_and_rejects_duplicate_endpoints() {
 }
 
 #[test]
-fn tcp_active_open_is_not_implemented() {
-    assert_eq!(
+fn tcp_active_open_requires_a_route() {
+    assert!(matches!(
         microps::protocol::Tcp::open::<MockRuntime>(
             Ipv4Endpoint::new(Ipv4Addr::ANY, 7),
             Ipv4Endpoint::new(Ipv4Addr::ANY, 0),
             TcpOpenMode::Active,
         ),
-        Err(TcpOpenError::ActiveOpenUnsupported)
-    );
+        Err(TcpOpenError::NetworkUnavailable)
+    ));
 }
 
 #[test]
@@ -169,6 +169,24 @@ fn tcp_pcb_accepts_acks_and_buffers_payload() {
     let mut buffer = [0; 3];
     assert_eq!(pcb.receive(&mut buffer), 3);
     assert_eq!(&buffer, b"hey");
+}
+
+#[test]
+fn tcp_pcb_completes_an_active_handshake() {
+    let local = Ipv4Endpoint::new(Ipv4Addr::from([192, 0, 2, 2]), 50000);
+    let remote = Ipv4Endpoint::new(Ipv4Addr::from([192, 0, 2, 1]), 7);
+    let mut pcb = TcpPcb::new();
+
+    pcb.connect(local, remote, 300);
+    assert_eq!(pcb.state(), TcpState::SynSent);
+    pcb.queue_retrans(300, TcpFlags::SYN, &[], 0);
+    pcb.accept_syn_ack(700, 301, 4096);
+
+    assert_eq!(pcb.state(), TcpState::Established);
+    assert_eq!(pcb.rcv_nxt(), 701);
+    assert_eq!(pcb.snd_una(), 301);
+    assert_eq!(pcb.snd_wnd(), 4096);
+    assert!(pcb.due_retrans(200_000).is_empty());
 }
 
 #[test]

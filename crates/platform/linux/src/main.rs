@@ -12,6 +12,8 @@ const TAP_NAME: &str = "microps0";
 const TAP_MAC: [u8; 6] = [0x00, 0x00, 0x5e, 0x00, 0x53, 0x01];
 const TAP_IP: [u8; 4] = [10, 0, 0, 2];
 const TAP_NETMASK: [u8; 4] = [255, 255, 255, 0];
+const TCP_REMOTE: [u8; 4] = [10, 0, 0, 1];
+const TCP_REMOTE_PORT: u16 = 10007;
 
 fn main() {
     Stack::<LinuxPlatform>::init().unwrap();
@@ -80,9 +82,9 @@ fn main() {
     }
 
     let tcp_pcb = match Tcp::open::<LinuxPlatform>(
-        Ipv4Endpoint::new(Ipv4Addr::ANY, 7),
         Ipv4Endpoint::new(Ipv4Addr::ANY, 0),
-        TcpOpenMode::Passive,
+        Ipv4Endpoint::new(TCP_REMOTE.into(), TCP_REMOTE_PORT),
+        TcpOpenMode::Active,
     ) {
         Ok(pcb) => pcb,
         Err(error_value) => {
