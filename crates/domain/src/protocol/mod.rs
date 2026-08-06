@@ -2,12 +2,14 @@ mod arp;
 mod ethernet;
 mod icmp;
 mod ipv4;
+mod tcp;
 mod udp;
 
 pub use arp::*;
 pub use ethernet::*;
 pub use icmp::*;
 pub use ipv4::*;
+pub use tcp::*;
 pub use udp::*;
 
 pub(crate) fn checksum16(data: &[u8]) -> u16 {
