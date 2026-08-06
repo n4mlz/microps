@@ -29,8 +29,8 @@ impl IfReq {
             name: [0; IFNAMSIZ],
             data: [0; 24],
         };
-        for (dest, src) in request.name.iter_mut().zip(bytes) {
-            *dest = *src as c_char;
+        for (dst, src) in request.name.iter_mut().zip(bytes) {
+            *dst = *src as c_char;
         }
         Ok(request)
     }

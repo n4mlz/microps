@@ -53,14 +53,14 @@ impl Ipv4 {
         protocol: u8,
         data: &[u8],
         src: Ipv4Addr,
-        dest: Ipv4Addr,
+        dst: Ipv4Addr,
     ) -> Result<usize, Ipv4OutputError<R::Error>> {
-        if src == Ipv4Addr::ANY && dest == Ipv4Addr::BROADCAST {
+        if src == Ipv4Addr::ANY && dst == Ipv4Addr::BROADCAST {
             return Err(Ipv4OutputError::SourceRequiredForBroadcast);
         }
         let route = P::stack()
             .ipv4_routes
-            .lookup(dest)
+            .lookup(dst)
             .ok_or(Ipv4OutputError::DestinationUnreachable)?;
         let routed_interface = P::stack()
             .interfaces
@@ -78,16 +78,16 @@ impl Ipv4 {
             src
         };
         let id = R::random16().map_err(Ipv4OutputError::Random)?;
-        let packet = Ipv4Packet::build(protocol, data, id, src, dest)?;
-        let dest_hardware = if routed_interface.hardware_address::<P>().is_some() {
+        let packet = Ipv4Packet::build(protocol, data, id, src, dst)?;
+        let dst_hardware = if routed_interface.hardware_address::<P>().is_some() {
             Some(
-                if dest == routed_interface.broadcast() || dest == Ipv4Addr::BROADCAST {
+                if dst == routed_interface.broadcast() || dst == Ipv4Addr::BROADCAST {
                     MacAddr::BROADCAST
                 } else {
                     Arp::resolve::<P>(
                         &routed_interface,
                         if route.nexthop() == Ipv4Addr::ANY {
-                            dest
+                            dst
                         } else {
                             route.nexthop()
                         },
@@ -105,12 +105,12 @@ impl Ipv4 {
         } else {
             None
         };
-        let dest_bytes = dest_hardware.map(|address| address.bytes());
+        let dst_bytes = dst_hardware.map(|address| address.bytes());
         <Ipv4Interface as NetInterface<P>>::output_raw(
             &routed_interface,
             EtherType::Ipv4 as u16,
             &packet,
-            dest_bytes.as_ref().map(|bytes| &bytes[..]),
+            dst_bytes.as_ref().map(|bytes| &bytes[..]),
         )?;
         Ok(packet.len())
     }
@@ -124,7 +124,7 @@ impl Ipv4 {
             }
         };
         let header = packet.header();
-        if !interface.accepts(header.dest().as_bytes()) {
+        if !interface.accepts(header.dst().as_bytes()) {
             return;
         }
 
@@ -150,7 +150,7 @@ impl Ipv4 {
         debug!("protocol: {}", header.protocol());
         debug!("sum: {:?}", header.checksum());
         debug!("src: {}", header.src());
-        debug!("dst: {}", header.dest());
+        debug!("dst: {}", header.dst());
 
         match Ipv4Protocol::try_from(header.protocol()) {
             Ok(Ipv4Protocol::Icmp) => {

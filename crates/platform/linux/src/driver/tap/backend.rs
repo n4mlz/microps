@@ -33,7 +33,7 @@ impl EtherTapDevice {
     fn handle_frame<P: Platform + 'static>(&mut self, frame: &[u8]) -> Result<(), DeviceError> {
         let frame =
             EthernetFrame::try_from(frame).map_err(|error| backend_error(error.to_string()))?;
-        if frame.header().dest() != self.address && frame.header().dest() != MacAddr::BROADCAST {
+        if frame.header().dst() != self.address && frame.header().dst() != MacAddr::BROADCAST {
             return Ok(());
         }
         let device = self.device_key.ok_or(DeviceError::MissingDeviceKey)?;
@@ -80,10 +80,10 @@ impl<P: Platform + 'static> DeviceBackend<P> for EtherTapDevice {
         data: &[u8],
         dst: Option<&[u8]>,
     ) -> Result<(), DeviceError> {
-        let dest = dst.ok_or(DeviceError::MissingDestination)?;
-        let dest: [u8; 6] = dest
+        let dst = dst.ok_or(DeviceError::MissingDestination)?;
+        let dst: [u8; 6] = dst
             .try_into()
-            .map_err(|_| DeviceError::InvalidDestination { len: dest.len() })?;
+            .map_err(|_| DeviceError::InvalidDestination { len: dst.len() })?;
         if data.len() > FRAME_LEN_MAX - HEADER_LEN {
             return Err(DeviceError::PayloadTooLarge {
                 mtu: FRAME_LEN_MAX - HEADER_LEN,
@@ -92,7 +92,7 @@ impl<P: Platform + 'static> DeviceBackend<P> for EtherTapDevice {
         }
         let ether_type =
             EtherType::try_from(frame_type).map_err(|error| backend_error(error.to_string()))?;
-        let mut frame = EthernetFrame::build(self.address, MacAddr::from(dest), ether_type, data)
+        let mut frame = EthernetFrame::build(self.address, MacAddr::from(dst), ether_type, data)
             .map_err(|error| backend_error(error.to_string()))?;
         frame.resize(frame.len().max(FRAME_LEN_MIN), 0);
         debug!(

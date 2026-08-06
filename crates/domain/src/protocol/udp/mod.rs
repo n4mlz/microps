@@ -74,11 +74,11 @@ impl Udp {
         debug!(
             "{} => {}, len={}",
             packet.src(),
-            packet.dest(),
+            packet.dst(),
             packet.data().len()
         );
         debug!("src: {}", packet.header().src_port());
-        debug!("dst: {}", packet.header().dest_port());
+        debug!("dst: {}", packet.header().dst_port());
         debug!(
             "len: {} (payload: {})",
             packet.header().length(),
@@ -86,7 +86,7 @@ impl Udp {
         );
         debug!("sum: 0x{:04x}", packet.header().checksum());
         debugdump(packet.data());
-        let pcb = P::stack().udp_pcbs.select(packet.dest());
+        let pcb = P::stack().udp_pcbs.select(packet.dst());
         let Some(pcb) = pcb else {
             return Err(UdpInputError::PortUnreachable);
         };

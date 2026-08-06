@@ -12,7 +12,7 @@ pub struct TcpPacket<'a> {
     #[getset(get_copy = "pub")]
     src: Ipv4Endpoint,
     #[getset(get_copy = "pub")]
-    dest: Ipv4Endpoint,
+    dst: Ipv4Endpoint,
     #[getset(get_copy = "pub")]
     header: TcpHeader,
     #[getset(get = "pub")]
@@ -26,7 +26,7 @@ pub struct TcpPacket<'a> {
 impl<'a> TcpPacket<'a> {
     pub fn build(
         src: Ipv4Endpoint,
-        dest: Ipv4Endpoint,
+        dst: Ipv4Endpoint,
         seq: u32,
         ack: u32,
         flags: TcpFlags,
@@ -39,13 +39,13 @@ impl<'a> TcpPacket<'a> {
             .ok_or(TcpError::PayloadTooLarge { len: payload.len() })?;
         let mut data = Vec::with_capacity(length);
         data.extend_from_slice(
-            &TcpHeader::new(src.port(), dest.port(), seq, ack, flags, window_size, 0).to_bytes(),
+            &TcpHeader::new(src.port(), dst.port(), seq, ack, flags, window_size, 0).to_bytes(),
         );
         data.extend_from_slice(payload);
 
         let pseudo_header = Ipv4PseudoHeader::new(
             src.address(),
-            dest.address(),
+            dst.address(),
             Ipv4Protocol::Tcp,
             length as u16,
         );
@@ -69,7 +69,7 @@ impl<'a> TcpPacket<'a> {
 
         let pseudo_header = Ipv4PseudoHeader::new(
             packet.header().src(),
-            packet.header().dest(),
+            packet.header().dst(),
             Ipv4Protocol::Tcp,
             data.len() as u16,
         );
@@ -82,7 +82,7 @@ impl<'a> TcpPacket<'a> {
 
         Ok(Self {
             src: Ipv4Endpoint::new(packet.header().src(), header.src_port()),
-            dest: Ipv4Endpoint::new(packet.header().dest(), header.dest_port()),
+            dst: Ipv4Endpoint::new(packet.header().dst(), header.dst_port()),
             header,
             options: &data[TCP_HEADER_LEN..header_len],
             payload: &data[header_len..],

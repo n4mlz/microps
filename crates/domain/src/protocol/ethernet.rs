@@ -78,7 +78,7 @@ pub struct MacAddrParseError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, CopyGetters)]
 pub struct EthernetHeader {
     #[getset(get_copy = "pub")]
-    dest: MacAddr,
+    dst: MacAddr,
     #[getset(get_copy = "pub")]
     src: MacAddr,
     #[getset(get_copy = "pub")]
@@ -86,9 +86,9 @@ pub struct EthernetHeader {
 }
 
 impl EthernetHeader {
-    pub const fn new(dest: MacAddr, src: MacAddr, ether_type: u16) -> Self {
+    pub const fn new(dst: MacAddr, src: MacAddr, ether_type: u16) -> Self {
         Self {
-            dest,
+            dst,
             src,
             ether_type,
         }
@@ -96,7 +96,7 @@ impl EthernetHeader {
 
     fn bytes(self) -> [u8; HEADER_LEN] {
         let mut bytes = [0; HEADER_LEN];
-        bytes[..6].copy_from_slice(&self.dest.bytes());
+        bytes[..6].copy_from_slice(&self.dst.bytes());
         bytes[6..12].copy_from_slice(&self.src.bytes());
         bytes[12..].copy_from_slice(&self.ether_type.to_be_bytes());
         bytes
@@ -114,14 +114,14 @@ pub struct EthernetFrame<'a> {
 impl EthernetFrame<'_> {
     pub fn build(
         src: MacAddr,
-        dest: MacAddr,
+        dst: MacAddr,
         ether_type: EtherType,
         payload: &[u8],
     ) -> Result<Vec<u8>, EthernetError> {
         if payload.len() > PAYLOAD_LEN_MAX {
             return Err(EthernetError::PayloadTooLarge { len: payload.len() });
         }
-        let header = EthernetHeader::new(dest, src, ether_type as u16);
+        let header = EthernetHeader::new(dst, src, ether_type as u16);
         let mut frame = Vec::with_capacity(HEADER_LEN + payload.len());
         frame.extend_from_slice(&header.bytes());
         frame.extend_from_slice(payload);

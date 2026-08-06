@@ -25,7 +25,7 @@ impl<'a> Ipv4Packet<'a> {
         payload: &[u8],
         id: u16,
         src: super::Ipv4Addr,
-        dest: super::Ipv4Addr,
+        dst: super::Ipv4Addr,
     ) -> Result<Vec<u8>, Ipv4Error> {
         let total_len = IP_HEADER_LEN
             .checked_add(payload.len())
@@ -34,7 +34,7 @@ impl<'a> Ipv4Packet<'a> {
             return Err(Ipv4Error::PayloadTooLarge { len: payload.len() });
         }
 
-        let header = Ipv4Header::new(protocol, id, src, dest);
+        let header = Ipv4Header::new(protocol, id, src, dst);
         let mut packet = Vec::with_capacity(total_len);
         packet.extend_from_slice(&header.to_bytes(total_len as u16));
         packet.extend_from_slice(payload);

@@ -37,9 +37,9 @@ impl Ipv4Interface {
         protocol: u8,
         data: &[u8],
         src: Ipv4Addr,
-        dest: Ipv4Addr,
+        dst: Ipv4Addr,
     ) -> Result<usize, Ipv4OutputError<R::Error>> {
-        Ipv4::output::<P, R>(self, protocol, data, src, dest)
+        Ipv4::output::<P, R>(self, protocol, data, src, dst)
     }
 
     pub fn accepts(&self, address: &[u8]) -> bool {

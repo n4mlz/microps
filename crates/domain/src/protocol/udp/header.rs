@@ -8,7 +8,7 @@ pub struct UdpHeader {
     #[getset(get_copy = "pub")]
     src_port: u16,
     #[getset(get_copy = "pub")]
-    dest_port: u16,
+    dst_port: u16,
     #[getset(get_copy = "pub")]
     length: u16,
     #[getset(get_copy = "pub")]
@@ -16,10 +16,10 @@ pub struct UdpHeader {
 }
 
 impl UdpHeader {
-    pub const fn new(src_port: u16, dest_port: u16, length: u16, checksum: u16) -> Self {
+    pub const fn new(src_port: u16, dst_port: u16, length: u16, checksum: u16) -> Self {
         Self {
             src_port,
-            dest_port,
+            dst_port,
             length,
             checksum,
         }
@@ -28,7 +28,7 @@ impl UdpHeader {
     pub fn to_bytes(self) -> [u8; UDP_HEADER_LEN] {
         let mut bytes = [0; UDP_HEADER_LEN];
         bytes[..2].copy_from_slice(&self.src_port.to_be_bytes());
-        bytes[2..4].copy_from_slice(&self.dest_port.to_be_bytes());
+        bytes[2..4].copy_from_slice(&self.dst_port.to_be_bytes());
         bytes[4..6].copy_from_slice(&self.length.to_be_bytes());
         bytes[6..].copy_from_slice(&self.checksum.to_be_bytes());
         bytes
@@ -44,7 +44,7 @@ impl TryFrom<&[u8]> for UdpHeader {
         }
         Ok(Self {
             src_port: u16::from_be_bytes([data[0], data[1]]),
-            dest_port: u16::from_be_bytes([data[2], data[3]]),
+            dst_port: u16::from_be_bytes([data[2], data[3]]),
             length: u16::from_be_bytes([data[4], data[5]]),
             checksum: u16::from_be_bytes([data[6], data[7]]),
         })

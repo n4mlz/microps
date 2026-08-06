@@ -68,7 +68,7 @@ impl<P: Platform> DeviceRegistry<P> {
         key: DeviceKey,
         frame_type: u16,
         data: &[u8],
-        dest: Option<&[u8]>,
+        dst: Option<&[u8]>,
     ) -> Result<(), DeviceError> {
         // Output would semantically belong to Device, but it is kept here because
         // loopback output must also raise the stack's soft-input IRQ. The IRQ
@@ -80,7 +80,7 @@ impl<P: Platform> DeviceRegistry<P> {
                 .expect("device registry lock is infallible");
             let device = devices.get_mut(key).ok_or(DeviceError::NotOpen)?;
             let loopback = device.meta().kind() == DeviceKind::Loopback;
-            device.output(frame_type, data, dest)?;
+            device.output(frame_type, data, dst)?;
             loopback
         };
 

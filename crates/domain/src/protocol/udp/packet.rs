@@ -12,7 +12,7 @@ pub struct UdpPacket<'a> {
     #[getset(get_copy = "pub")]
     src: Ipv4Endpoint,
     #[getset(get_copy = "pub")]
-    dest: Ipv4Endpoint,
+    dst: Ipv4Endpoint,
     #[getset(get_copy = "pub")]
     header: UdpHeader,
     #[getset(get = "pub")]
@@ -24,7 +24,7 @@ pub struct UdpPacket<'a> {
 impl<'a> UdpPacket<'a> {
     pub fn build(
         src: Ipv4Endpoint,
-        dest: Ipv4Endpoint,
+        dst: Ipv4Endpoint,
         payload: &[u8],
     ) -> Result<Vec<u8>, UdpError> {
         let length = UDP_HEADER_LEN
@@ -33,13 +33,13 @@ impl<'a> UdpPacket<'a> {
             .ok_or(UdpError::PayloadTooLarge { len: payload.len() })?;
         let pseudo_header = Ipv4PseudoHeader::new(
             src.address(),
-            dest.address(),
+            dst.address(),
             Ipv4Protocol::Udp,
             length as u16,
         );
         let mut data = Vec::with_capacity(length);
         data.extend_from_slice(
-            &UdpHeader::new(src.port(), dest.port(), length as u16, 0).to_bytes(),
+            &UdpHeader::new(src.port(), dst.port(), length as u16, 0).to_bytes(),
         );
         data.extend_from_slice(payload);
         let mut checksum_data = Vec::with_capacity(IPV4_PSEUDO_HEADER_LEN + length);
@@ -71,7 +71,7 @@ impl<'a> UdpPacket<'a> {
         if header.checksum() != 0 {
             let pseudo_header = Ipv4PseudoHeader::new(
                 packet.header().src(),
-                packet.header().dest(),
+                packet.header().dst(),
                 Ipv4Protocol::Udp,
                 length as u16,
             );
@@ -85,7 +85,7 @@ impl<'a> UdpPacket<'a> {
 
         Ok(Self {
             src: Ipv4Endpoint::new(packet.header().src(), header.src_port()),
-            dest: Ipv4Endpoint::new(packet.header().dest(), header.dest_port()),
+            dst: Ipv4Endpoint::new(packet.header().dst(), header.dst_port()),
             header,
             payload: &data[UDP_HEADER_LEN..],
             data,

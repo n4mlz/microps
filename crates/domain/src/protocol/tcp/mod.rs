@@ -46,8 +46,8 @@ impl Tcp {
         let packet = TcpPacket::from_ipv4(packet)?;
         if packet.src().address() == Ipv4Addr::BROADCAST
             || packet.src().address() == interface.broadcast()
-            || packet.dest().address() == Ipv4Addr::BROADCAST
-            || packet.dest().address() == interface.broadcast()
+            || packet.dst().address() == Ipv4Addr::BROADCAST
+            || packet.dst().address() == interface.broadcast()
         {
             return Err(TcpInputError::Broadcast);
         }
@@ -55,12 +55,12 @@ impl Tcp {
         debug!(
             "{} => {}, len={}, dev={:?}",
             packet.src(),
-            packet.dest(),
+            packet.dst(),
             packet.data().len(),
             interface.device()
         );
         debug!("src: {}", packet.header().src_port());
-        debug!("dst: {}", packet.header().dest_port());
+        debug!("dst: {}", packet.header().dst_port());
         debug!("seq: {}", packet.header().seq());
         debug!("ack: {}", packet.header().ack());
         debug!(
@@ -89,7 +89,7 @@ impl Tcp {
                 length: length as u32,
             },
             packet.header().flags(),
-            packet.dest(),
+            packet.dst(),
             packet.src(),
         );
         Ok(())
