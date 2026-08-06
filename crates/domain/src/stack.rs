@@ -16,6 +16,7 @@ pub struct Stack<P: Platform> {
     pub ipv4_routes: Ipv4RoutingTable<P>,
     pub tcp_pcbs: protocol::TcpPcbRegistry<P>,
     pub udp_pcbs: protocol::UdpPcbRegistry<P>,
+    pub sockets: protocol::SocketRegistry<P>,
 }
 
 #[derive(Debug, Error)]
@@ -40,6 +41,7 @@ impl<P: Platform + 'static> Stack<P> {
             ipv4_routes: Ipv4RoutingTable::default(),
             tcp_pcbs: protocol::TcpPcbRegistry::default(),
             udp_pcbs: protocol::UdpPcbRegistry::default(),
+            sockets: protocol::SocketRegistry::default(),
         }
     }
 

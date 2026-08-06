@@ -124,6 +124,28 @@ fn udp_registry_opens_binds_and_releases_sockets() {
 }
 
 #[test]
+fn socket_api_selects_an_ipv4_transport() {
+    use microps::protocol::{Socket, SocketDomain, SocketProtocol, SocketType};
+
+    let socket = Socket::open::<MockRuntime>(
+        SocketDomain::Ipv4,
+        SocketType::Datagram,
+        Some(SocketProtocol::Udp),
+    )
+    .unwrap();
+    Socket::bind::<MockRuntime>(socket, Ipv4Endpoint::new(Ipv4Addr::ANY, 40001)).unwrap();
+    Socket::close::<MockRuntime>(socket).unwrap();
+    assert!(
+        Socket::open::<MockRuntime>(
+            SocketDomain::Ipv4,
+            SocketType::Stream,
+            Some(SocketProtocol::Udp),
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn tcp_registry_listens_and_rejects_duplicate_endpoints() {
     let stack = MockRuntime::stack();
     let first = stack.tcp_pcbs.open();
