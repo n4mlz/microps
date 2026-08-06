@@ -6,6 +6,7 @@ use super::{Ipv4Endpoint, TcpFlags, TcpState};
 use crate::protocol::tcp::retrans::{Retrans, RetransInfo, RetransQueue};
 
 const RECEIVE_WINDOW_SIZE: u16 = u16::MAX;
+pub const TIME_WAIT_SECONDS: u64 = 30;
 
 #[derive(Debug, Clone, PartialEq, Eq, CopyGetters)]
 pub struct TcpPcb {
@@ -35,6 +36,7 @@ pub struct TcpPcb {
     mss: usize,
     receive_buffer: VecDeque<u8>,
     retrans_queue: RetransQueue,
+    time_wait_until: Option<u64>,
 }
 
 impl TcpPcb {
@@ -55,6 +57,7 @@ impl TcpPcb {
             mss: 0,
             receive_buffer: VecDeque::new(),
             retrans_queue: RetransQueue::new(),
+            time_wait_until: None,
         }
     }
 
@@ -120,7 +123,11 @@ impl TcpPcb {
     pub fn accept_ack(&mut self, seq: u32, ack: u32, window: u16) -> TcpAckResult {
         if !matches!(
             self.state,
-            TcpState::SynReceived | TcpState::Established | TcpState::CloseWait
+            TcpState::SynReceived
+                | TcpState::Established
+                | TcpState::CloseWait
+                | TcpState::FinWait1
+                | TcpState::FinWait2
         ) {
             return TcpAckResult::Ignored;
         }
@@ -138,6 +145,8 @@ impl TcpPcb {
             }
             if self.state == TcpState::SynReceived {
                 self.state = TcpState::Established;
+            } else if self.state == TcpState::FinWait1 && ack == self.snd_nxt {
+                self.state = TcpState::FinWait2;
             }
             self.cleanup_retrans();
             TcpAckResult::Accepted
@@ -151,19 +160,45 @@ impl TcpPcb {
     }
 
     pub fn accept_fin(&mut self, seq: u32, payload_len: usize) -> bool {
+        self.accept_fin_at(seq, payload_len, 0)
+    }
+
+    pub fn accept_fin_at(&mut self, seq: u32, payload_len: usize, timestamp: u64) -> bool {
         if self.rcv_nxt != seq.wrapping_add(payload_len as u32) {
             return false;
         }
         self.rcv_nxt = self.rcv_nxt.wrapping_add(1);
-        if matches!(self.state, TcpState::SynReceived | TcpState::Established) {
-            self.state = TcpState::CloseWait;
+        match self.state {
+            TcpState::SynReceived | TcpState::Established => self.state = TcpState::CloseWait,
+            TcpState::FinWait2 => self.enter_time_wait(timestamp),
+            TcpState::TimeWait => self.restart_time_wait(timestamp),
+            _ => {}
         }
         true
+    }
+
+    pub fn enter_fin_wait1(&mut self) {
+        self.advance_send(1);
+        self.state = TcpState::FinWait1;
     }
 
     pub fn enter_last_ack(&mut self) {
         self.advance_send(1);
         self.state = TcpState::LastAck;
+    }
+
+    pub fn enter_time_wait(&mut self, timestamp: u64) {
+        self.state = TcpState::TimeWait;
+        self.restart_time_wait(timestamp);
+    }
+
+    pub fn restart_time_wait(&mut self, timestamp: u64) {
+        self.time_wait_until = Some(timestamp.saturating_add(TIME_WAIT_SECONDS));
+    }
+
+    pub fn time_wait_expired(&self, timestamp: u64) -> bool {
+        self.state == TcpState::TimeWait
+            && self.time_wait_until.is_some_and(|until| timestamp > until)
     }
 
     // Sequence numbers, windows, and user data.

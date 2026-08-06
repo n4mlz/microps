@@ -173,8 +173,9 @@ impl Tcp {
                 Ok(())
             }
             TcpState::SynReceived | TcpState::Established => {
-                Self::output::<P>(&mut current, TcpFlags::RST, &[])?;
-                P::stack().tcp_pcbs.close(pcb);
+                Self::output::<P>(&mut current, TcpFlags::ACK | TcpFlags::FIN, &[])?;
+                current.enter_fin_wait1();
+                P::stack().tcp_pcbs.replace(pcb, current)?;
                 Ok(())
             }
             TcpState::CloseWait => {
@@ -183,7 +184,9 @@ impl Tcp {
                 P::stack().tcp_pcbs.replace(pcb, current)?;
                 Ok(())
             }
-            TcpState::LastAck => Err(TcpCloseError::State(TcpState::LastAck)),
+            TcpState::FinWait1 | TcpState::FinWait2 | TcpState::LastAck | TcpState::TimeWait => {
+                Err(TcpCloseError::State(current.state()))
+            }
             state => Err(TcpCloseError::State(state)),
         }
     }
@@ -193,7 +196,10 @@ impl Tcp {
         data: &[u8],
     ) -> Result<usize, TcpSendError<<P as Random>::Error>> {
         let current = P::stack().tcp_pcbs.get(pcb)?;
-        if !matches!(current.state(), TcpState::Established | TcpState::CloseWait) {
+        if !matches!(
+            current.state(),
+            TcpState::Established | TcpState::FinWait1 | TcpState::FinWait2 | TcpState::CloseWait
+        ) {
             return Err(TcpSendError::State(current.state()));
         }
         if data.is_empty() {
@@ -202,7 +208,13 @@ impl Tcp {
         let mut sent = 0;
         while sent < data.len() {
             let mut current = P::stack().tcp_pcbs.get(pcb)?;
-            if !matches!(current.state(), TcpState::Established | TcpState::CloseWait) {
+            if !matches!(
+                current.state(),
+                TcpState::Established
+                    | TcpState::FinWait1
+                    | TcpState::FinWait2
+                    | TcpState::CloseWait
+            ) {
                 return Err(TcpSendError::State(current.state()));
             }
             let in_flight = current.snd_nxt().wrapping_sub(current.snd_una());
@@ -257,9 +269,10 @@ impl Tcp {
         loop {
             let mut current = P::stack().tcp_pcbs.get(pcb)?;
             match current.state() {
-                TcpState::Established => {}
+                TcpState::Established | TcpState::FinWait1 | TcpState::FinWait2 => {}
                 TcpState::CloseWait if !current.has_received_data() => return Ok(0),
                 TcpState::CloseWait => {}
+                TcpState::LastAck | TcpState::TimeWait => return Ok(0),
                 state => return Err(TcpReceiveError::State(state)),
             }
             if buffer.is_empty() {
@@ -276,6 +289,9 @@ impl Tcp {
 
     pub fn tick<P: Platform + Random + 'static>() -> Result<(), TcpOutputError<<P as Random>::Error>>
     {
+        P::stack()
+            .tcp_pcbs
+            .expire_time_wait(P::monotonic_time_seconds());
         for retrans in P::stack()
             .tcp_pcbs
             .due_retrans(P::monotonic_time_microseconds())
@@ -412,8 +428,11 @@ impl Tcp {
             }
             TcpState::SynReceived
             | TcpState::Established
+            | TcpState::FinWait1
+            | TcpState::FinWait2
             | TcpState::CloseWait
-            | TcpState::LastAck => {
+            | TcpState::LastAck
+            | TcpState::TimeWait => {
                 if !pcb_state.accept_segment(segment.seq, segment.length) {
                     if !flags.contains(TcpFlags::RST) {
                         Self::output::<P>(&mut pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
@@ -447,7 +466,11 @@ impl Tcp {
                 } else {
                     return Ok(());
                 }
-                if state == TcpState::Established && !data.is_empty() {
+                if matches!(
+                    state,
+                    TcpState::Established | TcpState::FinWait1 | TcpState::FinWait2
+                ) && !data.is_empty()
+                {
                     if !pcb_state.accept_payload(segment.seq, data) {
                         Self::output::<P>(&mut pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
                         return Ok(());
@@ -463,11 +486,14 @@ impl Tcp {
                 state,
                 TcpState::SynReceived
                     | TcpState::Established
+                    | TcpState::FinWait1
+                    | TcpState::FinWait2
                     | TcpState::CloseWait
                     | TcpState::LastAck
+                    | TcpState::TimeWait
             )
         {
-            if !pcb_state.accept_fin(segment.seq, data.len()) {
+            if !pcb_state.accept_fin_at(segment.seq, data.len(), P::monotonic_time_seconds()) {
                 Self::output::<P>(&mut pcb_state, TcpFlags::ACK, &[]).map(|_| ())?;
                 return Ok(());
             }
