@@ -3,7 +3,10 @@ use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 
 use microps::{
     Irq, IrqLine, Lock, Platform, Random, Stack,
-    protocol::{Ipv4Addr, Ipv4Endpoint, TcpOpenError, TcpOpenMode, TcpState, UdpPcbError},
+    protocol::{
+        Ipv4Addr, Ipv4Endpoint, TcpAckResult, TcpOpenError, TcpOpenMode, TcpPcb, TcpState,
+        UdpPcbError,
+    },
 };
 
 struct MockRuntime;
@@ -141,4 +144,23 @@ fn tcp_active_open_is_not_implemented() {
         ),
         Err(TcpOpenError::ActiveOpenUnsupported)
     );
+}
+
+#[test]
+fn tcp_pcb_accepts_acks_and_buffers_payload() {
+    let local = Ipv4Endpoint::new(Ipv4Addr::ANY, 7);
+    let remote = Ipv4Endpoint::new(Ipv4Addr::from([192, 0, 2, 2]), 50000);
+    let mut pcb = TcpPcb::new();
+
+    pcb.listen(local, Ipv4Endpoint::new(Ipv4Addr::ANY, 0));
+    pcb.accept_syn(local, remote, 100, 200);
+    assert_eq!(pcb.state(), TcpState::SynReceived);
+    assert_eq!(pcb.accept_ack(101, 201, 4096), TcpAckResult::Accepted);
+    assert_eq!(pcb.state(), TcpState::Established);
+    assert!(pcb.accept_segment(101, 3));
+    assert!(pcb.accept_payload(101, b"hey"));
+
+    let mut buffer = [0; 3];
+    assert_eq!(pcb.receive(&mut buffer), 3);
+    assert_eq!(&buffer, b"hey");
 }

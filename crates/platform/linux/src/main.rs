@@ -94,6 +94,28 @@ fn main() {
     };
 
     debug!("interface={interface_key:?}, TCP connection established");
+    let echo_thread = thread::spawn(move || {
+        let mut buffer = [0; 128];
+        loop {
+            match Tcp::receive::<LinuxPlatform>(tcp_pcb, &mut buffer) {
+                Ok(length) => {
+                    debug!("received {length} bytes");
+                    microps::debugdump(&buffer[..length]);
+                    if let Err(error_value) = Tcp::send::<LinuxPlatform>(tcp_pcb, &buffer[..length])
+                    {
+                        error!("TCP send failure: {error_value}");
+                        break;
+                    }
+                }
+                Err(error_value) => {
+                    if !should_terminate() {
+                        error!("TCP receive failure: {error_value}");
+                    }
+                    break;
+                }
+            }
+        }
+    });
     while !should_terminate() {
         thread::sleep(Duration::from_secs(1));
     }
@@ -102,6 +124,7 @@ fn main() {
     if let Err(error_value) = Tcp::close::<LinuxPlatform>(tcp_pcb) {
         error!("TCP close failure: {error_value}");
     }
+    let _ = echo_thread.join();
     stack.close_all();
     Stack::<LinuxPlatform>::shutdown();
 }
