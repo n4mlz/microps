@@ -2,7 +2,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 
 use microps::{
-    Irq, IrqLine, Lock, Platform, Random, Stack, Time,
+    Irq, IrqLine, Lock, Platform, Random, Stack, Time, WaitResult,
     protocol::{
         Ipv4Addr, Ipv4Endpoint, TcpAckResult, TcpFlags, TcpOpenError, TcpOpenMode, TcpPcb,
         TcpState, UdpPcbError,
@@ -34,14 +34,22 @@ impl<T> Lock<T> for TestMutex<T> {
             .unwrap_or_else(|poisoned| poisoned.into_inner()))
     }
 
-    fn wait<'a>(&'a self, guard: Self::Guard<'a>) -> Result<Self::Guard<'a>, Self::Error> {
-        Ok(self
-            .1
-            .wait(guard)
-            .unwrap_or_else(|poisoned| poisoned.into_inner()))
+    fn wait<'a>(
+        &'a self,
+        guard: Self::Guard<'a>,
+    ) -> Result<WaitResult<Self::Guard<'a>>, Self::Error> {
+        Ok(WaitResult::Notified(
+            self.1
+                .wait(guard)
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        ))
     }
 
     fn wake_all(&self) {
+        self.1.notify_all();
+    }
+
+    fn interrupt_all(&self) {
         self.1.notify_all();
     }
 }
@@ -121,6 +129,28 @@ fn udp_registry_opens_binds_and_releases_sockets() {
     assert_eq!(stack.udp_pcbs.bind(second, endpoint), Ok(()));
     assert_eq!(stack.udp_pcbs.close(second), Ok(()));
     assert_eq!(stack.udp_pcbs.close(second), Err(UdpPcbError::NotFound));
+}
+
+#[test]
+fn socket_api_selects_an_ipv4_transport() {
+    use microps::protocol::{Socket, SocketDomain, SocketProtocol, SocketType};
+
+    let socket = Socket::open::<MockRuntime>(
+        SocketDomain::Ipv4,
+        SocketType::Datagram,
+        Some(SocketProtocol::Udp),
+    )
+    .unwrap();
+    Socket::bind::<MockRuntime>(socket, Ipv4Endpoint::new(Ipv4Addr::ANY, 40001)).unwrap();
+    Socket::close::<MockRuntime>(socket).unwrap();
+    assert!(
+        Socket::open::<MockRuntime>(
+            SocketDomain::Ipv4,
+            SocketType::Stream,
+            Some(SocketProtocol::Udp),
+        )
+        .is_err()
+    );
 }
 
 #[test]

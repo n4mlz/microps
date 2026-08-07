@@ -1,7 +1,10 @@
 use core::convert::Infallible;
-use std::sync::{
-    Arc, OnceLock,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
 };
 
 use microps::{Platform, Stdout};
@@ -31,6 +34,13 @@ fn init_signal() {
         .expect("failed to register SIGINT handler");
     signal_hook::flag::register(signal_hook::consts::SIGTERM, terminate)
         .expect("failed to register SIGTERM handler");
+    let mut signals = signal_hook::iterator::Signals::new([libc::SIGINT, libc::SIGTERM])
+        .expect("failed to register termination wakeup");
+    thread::spawn(move || {
+        for _ in signals.forever() {
+            crate::stack().interrupt_all();
+        }
+    });
 }
 
 pub fn should_terminate() -> bool {

@@ -2,6 +2,7 @@ mod arp;
 mod ethernet;
 mod icmp;
 mod ipv4;
+mod socket;
 mod tcp;
 mod udp;
 
@@ -12,6 +13,7 @@ pub use arp::*;
 pub use ethernet::*;
 pub use icmp::*;
 pub use ipv4::*;
+pub use socket::*;
 pub use tcp::*;
 pub use udp::*;
 

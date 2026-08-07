@@ -5,7 +5,7 @@ use slotmap::{SlotMap, new_key_type};
 use thiserror::Error;
 
 use crate::{
-    Lock, Platform,
+    Lock, Platform, WaitResult,
     protocol::{Ipv4Addr, Ipv4Endpoint},
 };
 
@@ -41,6 +41,8 @@ pub struct UdpPcbRegistry<P: Platform> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum UdpPcbError {
+    #[error("wait interrupted")]
+    Interrupted,
     #[error("UDP PCB does not exist")]
     NotFound,
     #[error("UDP endpoint is already in use")]
@@ -127,7 +129,10 @@ impl<P: Platform> UdpPcbRegistry<P> {
                 buffer[..length].copy_from_slice(&datagram.payload()[..length]);
                 return Ok((length, datagram.remote()));
             }
-            pcbs = self.pcbs.wait(pcbs).expect("UDP PCB wait is infallible");
+            pcbs = match self.pcbs.wait(pcbs).expect("UDP PCB wait is infallible") {
+                WaitResult::Notified(pcbs) => pcbs,
+                WaitResult::Interrupted(_) => return Err(UdpPcbError::Interrupted),
+            };
         }
     }
 
@@ -151,6 +156,10 @@ impl<P: Platform> UdpPcbRegistry<P> {
             }
         }
         Err(UdpPcbError::NoEphemeralPort)
+    }
+
+    pub fn interrupt_all(&self) {
+        self.pcbs.interrupt_all();
     }
 
     fn matches(bound: Ipv4Endpoint, requested: Ipv4Endpoint) -> bool {

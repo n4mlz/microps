@@ -3,7 +3,9 @@ use std::{thread, time::Duration};
 use linux::{EtherTapDevice, LinuxPlatform, should_terminate, stack};
 use microps::{
     DeviceKind, DeviceMeta, Irq, IrqLine, Stack, debug, error,
-    protocol::{Ipv4Addr, Ipv4Endpoint, Ipv4Interface, Tcp},
+    protocol::{
+        Ipv4Addr, Ipv4Endpoint, Ipv4Interface, Socket, SocketDomain, SocketProtocol, SocketType,
+    },
 };
 
 // These values must match scripts/linux_tap_up.sh:
@@ -80,78 +82,86 @@ fn main() {
         return;
     }
 
-    let listener = Tcp::socket::<LinuxPlatform>();
+    let listener = match Socket::open::<LinuxPlatform>(
+        SocketDomain::Ipv4,
+        SocketType::Stream,
+        Some(SocketProtocol::Tcp),
+    ) {
+        Ok(socket) => socket,
+        Err(error_value) => {
+            error!("socket open failure: {error_value}");
+            stack.close_all();
+            Stack::<LinuxPlatform>::shutdown();
+            return;
+        }
+    };
     if let Err(error_value) =
-        Tcp::bind::<LinuxPlatform>(listener, Ipv4Endpoint::new(Ipv4Addr::ANY, TCP_LISTEN_PORT))
+        Socket::bind::<LinuxPlatform>(listener, Ipv4Endpoint::new(Ipv4Addr::ANY, TCP_LISTEN_PORT))
     {
         error!("TCP bind failure: {error_value}");
         stack.close_all();
         Stack::<LinuxPlatform>::shutdown();
         return;
     }
-    if let Err(error_value) = Tcp::listen::<LinuxPlatform>(listener, 1) {
+    if let Err(error_value) = Socket::listen::<LinuxPlatform>(listener, 1) {
         error!("TCP listen failure: {error_value}");
         stack.close_all();
         Stack::<LinuxPlatform>::shutdown();
         return;
     }
-    let (tcp_pcb, remote) = match Tcp::accept::<LinuxPlatform>(listener) {
-        Ok(connection) => connection,
-        Err(error_value) => {
-            error!("TCP accept failure: {error_value}");
-            let _ = Tcp::close::<LinuxPlatform>(listener);
-            stack.close_all();
-            Stack::<LinuxPlatform>::shutdown();
-            return;
-        }
-    };
-
-    debug!("interface={interface_key:?}, remote={remote}, TCP connection established");
-    let echo_thread = thread::spawn(move || {
-        let mut buffer = [0; 128];
-        loop {
-            match Tcp::receive::<LinuxPlatform>(tcp_pcb, &mut buffer) {
-                Ok(length) => {
-                    if length == 0 {
-                        break;
-                    }
-                    debug!("received {length} bytes");
-                    microps::debugdump(&buffer[..length]);
-                    if let Err(error_value) = Tcp::send::<LinuxPlatform>(tcp_pcb, &buffer[..length])
-                    {
-                        error!("TCP send failure: {error_value}");
-                        break;
-                    }
-                }
-                Err(error_value) => {
-                    if !should_terminate() {
-                        error!("TCP receive failure: {error_value}");
-                    }
-                    break;
-                }
-            }
-        }
-    });
-    let mut close_requested = false;
     while !should_terminate() {
-        if let Err(error_value) = Tcp::tick::<LinuxPlatform>() {
-            error!("TCP retrans failure: {error_value}");
-        }
-        if !close_requested && echo_thread.is_finished() {
-            if let Err(error_value) = Tcp::close::<LinuxPlatform>(tcp_pcb) {
-                error!("TCP close failure: {error_value}");
+        let (connection, remote) = match Socket::accept::<LinuxPlatform>(listener) {
+            Ok(connection) => connection,
+            Err(error_value) => {
+                if !should_terminate() {
+                    error!("TCP accept failure: {error_value}");
+                }
+                break;
             }
-            close_requested = true;
+        };
+        debug!("interface={interface_key:?}, remote={remote}, TCP connection established");
+        let echo_thread = thread::spawn(move || {
+            let mut buffer = [0; 128];
+            loop {
+                match Socket::recv::<LinuxPlatform>(connection, &mut buffer) {
+                    Ok(length) => {
+                        if length == 0 {
+                            break;
+                        }
+                        debug!("received {length} bytes");
+                        microps::debugdump(&buffer[..length]);
+                        if let Err(error_value) =
+                            Socket::send::<LinuxPlatform>(connection, &buffer[..length])
+                        {
+                            error!("TCP send failure: {error_value}");
+                            break;
+                        }
+                    }
+                    Err(error_value) => {
+                        if !should_terminate() {
+                            error!("TCP receive failure: {error_value}");
+                        }
+                        break;
+                    }
+                }
+            }
+        });
+        while !should_terminate() && !echo_thread.is_finished() {
+            if let Err(error_value) = microps::protocol::Tcp::tick::<LinuxPlatform>() {
+                error!("TCP retrans failure: {error_value}");
+            }
+            thread::sleep(Duration::from_millis(100));
         }
-        thread::sleep(Duration::from_millis(100));
+        if should_terminate() {
+            Socket::abort::<LinuxPlatform>(connection);
+        } else if let Err(error_value) = Socket::close::<LinuxPlatform>(connection) {
+            error!("TCP close failure: {error_value}");
+        }
+        let _ = echo_thread.join();
     }
 
     debug!("terminate");
-    if !close_requested && let Err(error_value) = Tcp::close::<LinuxPlatform>(tcp_pcb) {
-        error!("TCP close failure: {error_value}");
-    }
-    let _ = echo_thread.join();
-    let _ = Tcp::close::<LinuxPlatform>(listener);
+    let _ = Socket::close::<LinuxPlatform>(listener);
     thread::sleep(Duration::from_secs(1));
     stack.close_all();
     Stack::<LinuxPlatform>::shutdown();

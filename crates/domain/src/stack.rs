@@ -16,6 +16,7 @@ pub struct Stack<P: Platform> {
     pub ipv4_routes: Ipv4RoutingTable<P>,
     pub tcp_pcbs: protocol::TcpPcbRegistry<P>,
     pub udp_pcbs: protocol::UdpPcbRegistry<P>,
+    pub sockets: protocol::SocketRegistry<P>,
 }
 
 #[derive(Debug, Error)]
@@ -40,6 +41,7 @@ impl<P: Platform + 'static> Stack<P> {
             ipv4_routes: Ipv4RoutingTable::default(),
             tcp_pcbs: protocol::TcpPcbRegistry::default(),
             udp_pcbs: protocol::UdpPcbRegistry::default(),
+            sockets: protocol::SocketRegistry::default(),
         }
     }
 
@@ -50,6 +52,11 @@ impl<P: Platform + 'static> Stack<P> {
 
     pub fn close_all(&self) {
         self.devices.close_all();
+    }
+
+    pub fn interrupt_all(&self) {
+        self.tcp_pcbs.interrupt_all();
+        self.udp_pcbs.interrupt_all();
     }
 
     pub fn soft_input(&self) -> Result<(), StackError> {

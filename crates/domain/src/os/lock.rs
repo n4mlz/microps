@@ -1,5 +1,10 @@
 use core::{fmt::Debug, ops::DerefMut};
 
+pub enum WaitResult<G> {
+    Notified(G),
+    Interrupted(G),
+}
+
 pub trait Lock<T: ?Sized> {
     type Error: Debug;
     type Guard<'a>: DerefMut<Target = T>
@@ -14,7 +19,12 @@ pub trait Lock<T: ?Sized> {
 
     fn acquire(&self) -> Result<Self::Guard<'_>, Self::Error>;
 
-    fn wait<'a>(&'a self, guard: Self::Guard<'a>) -> Result<Self::Guard<'a>, Self::Error>;
+    fn wait<'a>(
+        &'a self,
+        guard: Self::Guard<'a>,
+    ) -> Result<WaitResult<Self::Guard<'a>>, Self::Error>;
 
     fn wake_all(&self);
+
+    fn interrupt_all(&self);
 }
