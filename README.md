@@ -27,9 +27,11 @@
     - test: `cargo test -p linux`
     - build: `cargo build -p linux`
   - xv6 (予定):
-    - build: `cargo xtask build ffi_c --target <target>` (`cargo build -p ffi_c --target <target>`)
+    - build: `cargo xtask build ffi_c --target <target>` (`cargo xtask build ffi_c --target <target> --release`)
+      - xv6-riscv 用の例: `cargo xtask build ffi_c --target riscv64imac-unknown-none-elf --release`
+      - 事前に対象 target を追加する: `rustup target add riscv64imac-unknown-none-elf`
     - 標準の `cargo build` では `.a` までしか生成されないため xtask を用いる
-      - xtask 内で `.h` は `cbindgen` を用いて生成し、`dist/` などに出力
+      - xtask 内で `.h` は `cbindgen` を用いて生成し、`dist/ffi_c/<target>/<profile>/` に `.a` とともに出力
   - Cyrius (自作 OS, 予定):
     - lib クレートとしてこのリポジトリの domain (microps) を利用。platform/ は利用しない
     - 例えば Cyrius の Cargo.toml から packages に microps = { git=... } のように書けると良い。microps という package 名は `domain` を指すのでこちらが import される

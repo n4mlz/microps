@@ -1,0 +1,13 @@
+[package]
+name = "ffi_c"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+test = false
+doctest = false
+
+[dependencies]
+microps.workspace = true
+slotmap.workspace = true
