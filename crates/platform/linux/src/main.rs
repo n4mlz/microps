@@ -152,9 +152,9 @@ fn main() {
             }
             thread::sleep(Duration::from_millis(100));
         }
-        if let Err(error_value) = Socket::close::<LinuxPlatform>(connection)
-            && !should_terminate()
-        {
+        if should_terminate() {
+            Socket::abort::<LinuxPlatform>(connection);
+        } else if let Err(error_value) = Socket::close::<LinuxPlatform>(connection) {
             error!("TCP close failure: {error_value}");
         }
         let _ = echo_thread.join();

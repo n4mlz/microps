@@ -54,6 +54,11 @@ impl<P: Platform + 'static> Stack<P> {
         self.devices.close_all();
     }
 
+    pub fn interrupt_all(&self) {
+        self.tcp_pcbs.interrupt_all();
+        self.udp_pcbs.interrupt_all();
+    }
+
     pub fn soft_input(&self) -> Result<(), StackError> {
         while let Some(frame) = self.input_queue.pop() {
             let device = frame.device();

@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use slotmap::{SlotMap, new_key_type};
 
 use super::{Ipv4Endpoint, TcpPcb, TcpState};
-use crate::{Lock, Platform};
+use crate::{Lock, Platform, WaitResult};
 
 new_key_type! {
     pub struct TcpPcbKey;
@@ -127,7 +127,10 @@ impl<P: Platform> TcpPcbRegistry<P> {
             if let Some(child) = listener_pcb.backlog_mut().pop_front() {
                 return Ok(child);
             }
-            pcbs = self.pcbs.wait(pcbs).expect("TCP PCB wait is infallible");
+            pcbs = match self.pcbs.wait(pcbs).expect("TCP PCB wait is infallible") {
+                WaitResult::Notified(pcbs) => pcbs,
+                WaitResult::Interrupted(_) => return Err(TcpPcbError::Interrupted),
+            };
         }
     }
 
@@ -277,7 +280,10 @@ impl<P: Platform> TcpPcbRegistry<P> {
             if current != state {
                 return Ok(current);
             }
-            pcbs = self.pcbs.wait(pcbs).expect("TCP PCB wait is infallible");
+            pcbs = match self.pcbs.wait(pcbs).expect("TCP PCB wait is infallible") {
+                WaitResult::Notified(pcbs) => pcbs,
+                WaitResult::Interrupted(_) => return Err(TcpPcbError::Interrupted),
+            };
         }
     }
 
@@ -289,8 +295,17 @@ impl<P: Platform> TcpPcbRegistry<P> {
         if !pcbs.contains_key(pcb) {
             return Err(TcpPcbError::NotFound);
         }
-        let _ = self.pcbs.wait(pcbs).expect("TCP PCB wait is infallible");
+        if matches!(
+            self.pcbs.wait(pcbs).expect("TCP PCB wait is infallible"),
+            WaitResult::Interrupted(_)
+        ) {
+            return Err(TcpPcbError::Interrupted);
+        }
         Ok(())
+    }
+
+    pub fn interrupt_all(&self) {
+        self.pcbs.interrupt_all();
     }
 
     pub fn select(
@@ -326,6 +341,8 @@ impl<P: Platform> TcpPcbRegistry<P> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum TcpPcbError {
+    #[error("wait interrupted")]
+    Interrupted,
     #[error("TCP PCB does not exist")]
     NotFound,
     #[error("TCP endpoint is already in use")]

@@ -2,7 +2,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 
 use microps::{
-    Irq, IrqLine, Lock, Platform, Random, Stack, Time,
+    Irq, IrqLine, Lock, Platform, Random, Stack, Time, WaitResult,
     protocol::{
         Ipv4Addr, Ipv4Endpoint, TcpAckResult, TcpFlags, TcpOpenError, TcpOpenMode, TcpPcb,
         TcpState, UdpPcbError,
@@ -34,14 +34,22 @@ impl<T> Lock<T> for TestMutex<T> {
             .unwrap_or_else(|poisoned| poisoned.into_inner()))
     }
 
-    fn wait<'a>(&'a self, guard: Self::Guard<'a>) -> Result<Self::Guard<'a>, Self::Error> {
-        Ok(self
-            .1
-            .wait(guard)
-            .unwrap_or_else(|poisoned| poisoned.into_inner()))
+    fn wait<'a>(
+        &'a self,
+        guard: Self::Guard<'a>,
+    ) -> Result<WaitResult<Self::Guard<'a>>, Self::Error> {
+        Ok(WaitResult::Notified(
+            self.1
+                .wait(guard)
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        ))
     }
 
     fn wake_all(&self) {
+        self.1.notify_all();
+    }
+
+    fn interrupt_all(&self) {
         self.1.notify_all();
     }
 }

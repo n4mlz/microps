@@ -114,6 +114,16 @@ impl Socket {
         }
     }
 
+    pub fn abort<P: Platform + 'static>(socket: SocketKey) -> bool {
+        let Some(entry) = P::stack().sockets.remove(socket) else {
+            return false;
+        };
+        match entry.transport {
+            SocketTransport::Tcp(pcb) => P::stack().tcp_pcbs.close(pcb),
+            SocketTransport::Udp(pcb) => P::stack().udp_pcbs.close(pcb).is_ok(),
+        }
+    }
+
     pub fn bind<P: Platform + 'static>(
         socket: SocketKey,
         local: Ipv4Endpoint,
